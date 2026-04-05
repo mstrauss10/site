@@ -1,0 +1,1899 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Trend Engine — Institutional Dashboard</title>
+  <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #22263a;
+      --border: #2a2d3a;
+      --accent: #4f8ef7;
+      --green: #26a69a;
+      --red: #ef5350;
+      --yellow: #ffd54f;
+      --orange: #ff8a65;
+      --text: #e0e0e0;
+      --muted: #7a7d8e;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+
+    /* ── Layout ── */
+    header {
+      padding: 0.75rem 2rem;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+    header h1 { font-size: 1.1rem; font-weight: 700; color: var(--accent); white-space: nowrap; }
+
+    .header-live {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+    }
+    .header-kpi { display: flex; flex-direction: column; align-items: center; gap: 0; }
+    .header-kpi .kpi-val { font-weight: 700; font-size: 0.95rem; line-height: 1.2; }
+    .header-kpi .kpi-label { color: var(--muted); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; }
+    #last-update { color: var(--muted); font-size: 0.72rem; white-space: nowrap; }
+
+    .loader-bar { height: 3px; background: var(--accent); width: 0%; transition: width 0.3s; }
+
+    main { padding: 1.25rem 2rem; display: flex; flex-direction: column; gap: 1.25rem; }
+
+    /* ── Controls ── */
+    .controls { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+    select, button {
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.35rem 0.75rem;
+      font-size: 0.875rem;
+      cursor: pointer;
+    }
+    button.primary { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+    button:hover { opacity: 0.85; }
+    label { font-size: 0.8rem; color: var(--muted); }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.1rem 1.25rem;
+    }
+    .card-title {
+      font-size: 0.78rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      margin-bottom: 0.9rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .card-title span { color: var(--text); font-size: 0.82rem; text-transform: none; letter-spacing: 0; }
+
+    /* ── Tables ── */
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th { color: var(--muted); text-align: left; padding: 0.45rem 0.75rem; border-bottom: 1px solid var(--border); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
+    td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border)22; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,0.025); }
+    .ticker-cell { font-weight: 700; color: var(--accent); font-size: 0.95rem; }
+    .table-scroll { overflow-x: auto; }
+
+    /* ── Signal Gauge ── */
+    .bar-cell { white-space: nowrap; min-width: 110px; }
+    .gauge-wrap { display: flex; align-items: center; gap: 5px; }
+    .gauge-track { position: relative; height: 7px; width: 64px; background: var(--border); border-radius: 3px; overflow: hidden; flex-shrink: 0; }
+    .gauge-fill { height: 100%; border-radius: 3px; transition: width 0.4s; }
+    .gauge-val { font-size: 0.8rem; min-width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
+
+    /* ── Charts ── */
+    .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1rem; }
+    @media (max-width: 900px) { .charts-grid { grid-template-columns: 1fr; } }
+    .chart-box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; }
+    .chart-box h3 { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.4rem; }
+    .plot { height: 250px; }
+
+    /* ── Badges ── */
+    .regime-badge {
+      display: inline-block; border-radius: 4px; padding: 2px 8px;
+      font-size: 0.74rem; font-weight: 700; white-space: nowrap; letter-spacing: 0.02em;
+    }
+    .stat-pill {
+      display: inline-block; background: rgba(255,255,255,0.07); border-radius: 4px;
+      padding: 2px 7px; font-size: 0.75rem; color: var(--muted);
+    }
+
+    /* ── Metric Cards ── */
+    .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 0.9rem; }
+    .metric-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--border);
+      border-radius: 8px;
+      padding: 0.85rem 1rem;
+      display: flex; flex-direction: column; gap: 0.3rem;
+    }
+    .metric-card .label { color: var(--muted); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; }
+    .metric-card .value { font-size: 1.05rem; font-weight: 700; line-height: 1.2; }
+    .metric-card .sub { color: var(--muted); font-size: 0.75rem; }
+
+    /* ── Insight Banner ── */
+    .insight-banner {
+      border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.25rem;
+      background: linear-gradient(135deg, rgba(79,142,247,0.1), rgba(38,166,154,0.06));
+      line-height: 1.6;
+    }
+
+    /* ── Horizon summary table ── */
+    .hz-table { width: 100%; font-size: 0.82rem; border-collapse: collapse; }
+    .hz-table th { color: var(--muted); font-size: 0.72rem; text-transform: uppercase; padding: 0.3rem 0.6rem; border-bottom: 1px solid var(--border); text-align: left; }
+    .hz-table td { padding: 0.35rem 0.6rem; }
+    .hz-note { font-size: 0.68rem; color: var(--muted); margin-top: 0.35rem; }
+
+    /* ── Best Regime card ── */
+    .best-regime-card {
+      background: rgba(38,166,154,0.1); border: 1px solid rgba(38,166,154,0.35);
+      border-radius: 8px; padding: 0.75rem 1rem; margin-top: 0.75rem;
+    }
+
+    /* ── Regime summary cards ── */
+    .regime-card-item {
+      display: flex; flex-direction: column; gap: 0.35rem;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 0.8rem 1rem; min-width: 150px;
+    }
+    .regime-card-ticker { font-size: 0.9rem; font-weight: 700; color: var(--accent); }
+
+    /* ── Validation section ── */
+    .validation-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 1rem; }
+    .val-plot { height: 230px; }
+
+    /* ── Status bar ── */
+    #status-bar { text-align: center; font-size: 0.78rem; color: var(--muted); padding: 0.4rem; }
+
+    /* ── Tab navigation ── */
+    .tab-bar {
+      display: flex; gap: 0; background: var(--surface);
+      border-bottom: 1px solid var(--border); padding: 0 2rem;
+    }
+    .tab-btn {
+      background: transparent; border: none; border-bottom: 3px solid transparent;
+      border-radius: 0; color: var(--muted); cursor: pointer; font-size: 0.875rem;
+      font-weight: 600; padding: 0.7rem 1.2rem; transition: color 0.15s, border-color 0.15s;
+    }
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab-btn:hover { opacity: 1; color: var(--text); }
+
+    /* ── Page visibility ── */
+    #page-research { display: none; flex-direction: column; }
+    #page-strategy-matrix { display: none; flex-direction: column; }
+    #page-correlations { display: none; flex-direction: column; }
+
+
+    /* Markdown */
+    .md-body { max-width: 800px; line-height: 1.75; }
+    .md-body h1, .md-body h2, .md-body h3, .md-body h4 { color: var(--accent); margin: 1.3em 0 0.45em; font-weight: 700; }
+    .md-body h1 { font-size: 1.45rem; } .md-body h2 { font-size: 1.18rem; } .md-body h3 { font-size: 0.97rem; }
+    .md-body p, .md-body li { font-size: 0.92rem; color: var(--text); margin: 0.38em 0; }
+    .md-body ul, .md-body ol { padding-left: 1.5em; }
+    .md-body blockquote { border-left: 3px solid var(--accent); margin: 0.75em 0; padding: 0.35em 1em; color: var(--muted); background: var(--surface); border-radius: 0 6px 6px 0; }
+    .md-body code { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 0.84em; padding: 0.1em 0.4em; }
+    .md-body pre code { display: block; padding: 0.75em 1em; overflow-x: auto; }
+    .md-body table { border-collapse: collapse; font-size: 0.87rem; margin: 1em 0; }
+    .md-body th, .md-body td { border: 1px solid var(--border); padding: 0.42rem 0.72rem; }
+    .md-body th { background: var(--surface); color: var(--muted); }
+    .md-body hr { border: none; border-top: 1px solid var(--border); margin: 1.4em 0; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>⚡ Trend Engine</h1>
+  <div class="header-live" id="header-live">
+    <div id="header-macro-badge" style="font-size:0.82rem;opacity:0.5">loading regime…</div>
+    <div class="header-kpi">
+      <span class="kpi-val" id="header-vix" style="color:var(--muted)">—</span>
+      <span class="kpi-label">VIX</span>
+    </div>
+    <div class="header-kpi">
+      <span class="kpi-val" id="header-score" style="color:var(--muted)">—</span>
+      <span class="kpi-label">Macro Score</span>
+    </div>
+    <span id="last-update">—</span>
+  </div>
+</header>
+
+<div style="background:linear-gradient(90deg,#0a1628,#162038);border-bottom:1px solid #2a4a6a;padding:0.35rem 2rem;display:flex;align-items:center;gap:0.75rem">
+  <span style="font-size:0.72rem;color:#7a9cc4;text-transform:uppercase;letter-spacing:0.08em;font-weight:700">⚡ Static Demo Build</span>
+  <span style="font-size:0.72rem;color:#4a6a8a">·</span>
+  <span style="font-size:0.72rem;color:#4a6a8a">All data pre-computed from live market signals — no backend required</span>
+  <span style="font-size:0.72rem;color:#4a6a8a;margin-left:auto">Refresh button re-renders cached data</span>
+</div>
+<div class="loader-bar" id="loader"></div>
+
+<nav class="tab-bar">
+  <button class="tab-btn active" onclick="switchTab('dashboard')">📊 Dashboard</button>
+  <button class="tab-btn" onclick="switchTab('research')">🏛 Research</button>
+  <button class="tab-btn" onclick="switchTab('strategy-matrix')">⚡ Strategy Signals</button>
+  <button class="tab-btn" onclick="switchTab('correlations')">🔗 Correlations</button>
+
+</nav>
+
+<!-- ═══════════════ DASHBOARD ═══════════════ -->
+<div id="page-dashboard">
+<main>
+
+  <div class="controls">
+    <label>Ticker detail:</label>
+    <select id="ticker-select">
+      <option value="SPY">SPY</option>
+      <option value="QQQ">QQQ</option>
+      <option value="GLD">GLD</option>
+      <option value="TLT">TLT</option>
+    </select>
+    <label>Heatmap horizon:</label>
+    <select id="heatmap-horizon-select">
+      <option value="1">1m fwd</option>
+      <option value="3" selected>3m fwd</option>
+      <option value="6">6m fwd</option>
+    </select>
+    <button class="primary" onclick="loadAll()">↻ Refresh</button>
+  </div>
+
+  <!-- Institutional Trade Blotter (NEW) -->
+  <div class="card" id="institutional-blotter" style="border-left: 3px solid var(--accent)">
+    <div class="card-title">Proprietary Trade Blotter <span>Execution suggestions based on risk-parity sizing & regime gating</span></div>
+    <div class="table-scroll">
+      <table id="blotter-table">
+        <thead>
+          <tr>
+            <th>Ticker</th>
+            <th>Signal Exposure</th>
+            <th>Action</th>
+            <th>Confidence</th>
+            <th>Adjusted Size</th>
+            <th>Volatility Status</th>
+            <th>Last Status</th>
+          </tr>
+        </thead>
+        <tbody id="blotter-body">
+          <tr><td colspan="7" style="color:var(--muted);text-align:center;padding:1rem">Loading execution logic…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Overview table -->
+  <div class="card">
+    <div class="card-title">Universe Snapshot — Latest Bar</div>
+    <div class="table-scroll">
+    <table id="overview-table">
+      <thead>
+        <tr>
+          <th>Ticker</th>
+          <th>Date</th>
+          <th>Close</th>
+          <th>Regime</th>
+          <th>Trend ▸</th>
+          <th>Momentum ▸</th>
+          <th>Confidence ▸</th>
+          <th>Risk Pressure ↓</th>
+          <th>Exit Hazard ↓</th>
+          <th>Exposure ▸</th>
+          <th>1m Rtn</th>
+          <th>3m Rtn</th>
+          <th>Rank</th>
+        </tr>
+      </thead>
+      <tbody id="overview-body">
+        <tr><td colspan="13" style="color:var(--muted);text-align:center;padding:2rem">Loading…</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <!-- Regime cards with macro context -->
+  <div style="display:grid;grid-template-columns:1fr auto;gap:1.1rem;align-items:start">
+    <div class="card">
+      <div class="card-title">Technical Regime — Per Ticker</div>
+      <div id="regime-cards" style="display:flex;gap:0.8rem;flex-wrap:wrap">
+        <span style="color:var(--muted);font-size:0.85rem">Loading…</span>
+      </div>
+    </div>
+    <div class="card" style="min-width:220px">
+      <div class="card-title">Macro Context <span id="macro-snapshot-date" style="color:var(--muted)"></span></div>
+      <div id="dashboard-macro-card" style="font-size:0.82rem;color:var(--muted)">Loading…</div>
+    </div>
+  </div>
+
+  <!-- Signal time-series charts -->
+  <div class="charts-grid">
+    <div class="chart-box">
+      <h3 id="chart-title-ts">Trend Score</h3>
+      <div id="chart-trend" class="plot"></div>
+    </div>
+    <div class="chart-box">
+      <h3 id="chart-title-mo">Momentum Score</h3>
+      <div id="chart-momentum" class="plot"></div>
+    </div>
+    <div class="chart-box">
+      <h3>Target Exposure vs Price</h3>
+      <div id="chart-exposure" class="plot"></div>
+    </div>
+    <div class="chart-box">
+      <h3>Risk Pressure & Exit Hazard</h3>
+      <div id="chart-risk" class="plot"></div>
+    </div>
+  </div>
+
+  <!-- Regime History with background bands -->
+  <div class="card">
+    <div class="card-title" id="chart-regime-title">Market Regime History</div>
+    <div id="chart-regime" style="height:260px"></div>
+  </div>
+
+  <!-- Heatmap -->
+  <div class="card">
+    <div class="card-title">2D Signal Map: Trend × Momentum → <span id="heatmap-label">Mean Fwd Return 3m</span></div>
+    <div id="chart-heatmap" style="height:310px"></div>
+  </div>
+
+  <!-- Exposure validation -->
+  <div class="card">
+    <div class="card-title">Exposure → Forward Return Validation (Binned, per Ticker)</div>
+    <div class="validation-grid" id="validation-grid"></div>
+  </div>
+
+</main>
+</div><!-- end #page-dashboard -->
+
+
+<!-- ═══════════════ RESEARCH ═══════════════ -->
+<div id="page-research" style="display:none;flex-direction:column">
+<main>
+
+  <div class="insight-banner" id="macro-insight-banner">Loading macro regime context…</div>
+
+  <!-- Macro regime cards (colored borders) -->
+  <div class="card">
+    <div class="card-title">Common Macro Regimes — Current Reading</div>
+    <div class="metric-grid" id="macro-cards">
+      <div class="metric-card"><span class="label">Loading</span><span class="value">…</span></div>
+    </div>
+  </div>
+
+  <!-- Macro history with regime bands -->
+  <div class="card">
+    <div class="card-title">Macro Regime History <span>Score / Confidence / VIX — background bands = active regime</span></div>
+    <div id="macro-history-chart" style="height:300px"></div>
+  </div>
+
+  <!-- Signal validation -->
+  <div class="card">
+    <div class="card-title">Signal Intelligence — Decile Analysis &amp; Regime Conditioning</div>
+
+    <div class="controls" style="margin-bottom:1rem">
+      <label>Ticker:</label>
+      <select id="research-ticker-select">
+        <option value="SPY">SPY</option>
+        <option value="QQQ">QQQ</option>
+        <option value="GLD">GLD</option>
+        <option value="TLT">TLT</option>
+      </select>
+      <label>Signal:</label>
+      <select id="research-signal-select"></select>
+      <label>Regime Horizon:</label>
+      <select id="research-horizon-select">
+        <option value="1">1m</option>
+        <option value="3" selected>3m</option>
+        <option value="6">6m</option>
+      </select>
+      <label>Condition On:</label>
+      <select id="research-regime-select">
+        <option value="macro_regime">Macro Regime</option>
+        <option value="market_regime">Technical Regime</option>
+      </select>
+    </div>
+
+    <!-- Multi-horizon summary + best regime -->
+    <div id="research-summary-area" style="margin-bottom:1.1rem"></div>
+
+    <!-- Decile chart (all 3 horizons) + Regime-conditioned chart -->
+    <div class="charts-grid">
+      <div class="chart-box">
+        <h3 id="research-decile-title">Decile Returns — All Horizons</h3>
+        <div id="research-decile-chart" style="height:300px"></div>
+      </div>
+      <div class="chart-box">
+        <h3 id="research-regime-title">Top-Bottom Spread by Regime</h3>
+        <div id="research-regime-chart" style="height:300px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 2D Cross-Signal Prediction Matrix ── -->
+  <div class="card">
+    <div class="card-title">
+      Signal Interaction Matrix
+      <span>Historical prediction: classify two signals into bins and cross them to reveal joint predictive power</span>
+    </div>
+    <div class="controls" style="margin-bottom:1rem;gap:0.6rem">
+      <label>Ticker:</label>
+      <select id="cross-ticker-select">
+        <option value="SPY">SPY</option>
+        <option value="QQQ">QQQ</option>
+        <option value="GLD">GLD</option>
+        <option value="TLT">TLT</option>
+      </select>
+      <label>X-Axis Signal:</label>
+      <select id="cross-sig-x">
+        <option value="trend_score" selected>Trend Score</option>
+        <option value="momentum_score">Momentum Score</option>
+        <option value="confidence">Confidence</option>
+        <option value="target_exposure">Target Exposure</option>
+        <option value="risk_pressure">Risk Pressure</option>
+        <option value="pb_score">Pullback</option>
+        <option value="breakout_score">Breakout</option>
+        <option value="reversion_score">Mean Reversion</option>
+        <option value="rv_score">Reversal</option>
+      </select>
+      <label>Y-Axis Signal:</label>
+      <select id="cross-sig-y">
+        <option value="momentum_score" selected>Momentum Score</option>
+        <option value="trend_score">Trend Score</option>
+        <option value="confidence">Confidence</option>
+        <option value="target_exposure">Target Exposure</option>
+        <option value="risk_pressure">Risk Pressure</option>
+        <option value="pb_score">Pullback</option>
+        <option value="breakout_score">Breakout</option>
+        <option value="reversion_score">Mean Reversion</option>
+        <option value="rv_score">Reversal</option>
+      </select>
+      <label>Bins:</label>
+      <select id="cross-bins">
+        <option value="3">3 (Low/Mid/High)</option>
+        <option value="4" selected>4 (Quartiles)</option>
+        <option value="6">6 (Sextiles)</option>
+      </select>
+      <label>Horizon:</label>
+      <select id="cross-horizon">
+        <option value="1">1m fwd</option>
+        <option value="3" selected>3m fwd</option>
+        <option value="6">6m fwd</option>
+      </select>
+      <label>Color By:</label>
+      <select id="cross-metric">
+        <option value="mean_return" selected>Mean Return</option>
+        <option value="hit_rate">Hit Rate %</option>
+      </select>
+      <button class="primary" onclick="loadCrossPrediction()">Run Analysis</button>
+    </div>
+
+    <!-- 2D heatmap -->
+    <div style="display:grid;grid-template-columns:1fr 340px;gap:1.25rem;align-items:start">
+      <div>
+        <div id="cross-heatmap-plot" style="height:480px"></div>
+      </div>
+      <div>
+        <div id="cross-insight-panel" style="display:flex;flex-direction:column;gap:0.85rem">
+          <div style="font-size:0.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.07em">Interaction Insights</div>
+          <div id="cross-insight-content" style="color:var(--muted);font-size:0.83rem">Run analysis to see insights</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Summary table of all bin combinations sorted by mean return -->
+    <div style="margin-top:1.25rem">
+      <div style="font-size:0.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.07em;margin-bottom:0.5rem">
+        All Bin Combinations — Ranked by Mean Forward Return
+      </div>
+      <div class="table-scroll" style="max-height:260px;overflow-y:auto">
+        <table id="cross-summary-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th id="cross-th-x">Signal X Bin</th>
+              <th id="cross-th-y">Signal Y Bin</th>
+              <th>Mean Return</th>
+              <th>Hit Rate</th>
+              <th>Std Dev</th>
+              <th>n</th>
+            </tr>
+          </thead>
+          <tbody id="cross-summary-body">
+            <tr><td colspan="7" style="color:var(--muted);text-align:center;padding:1rem">Run analysis to populate</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</main>
+</div><!-- end #page-research -->
+
+
+<!-- ═══════════════ STRATEGY MATRIX ═══════════════ -->
+<div id="page-strategy-matrix" style="display:none;flex-direction:column">
+<main>
+
+  <div class="card">
+    <div class="card-title">Live Strategy Signal Matrix — Latest Bar <span>Rows = tickers · Cols = strategy signals · Bottom row = composite average</span></div>
+    <div id="strat-matrix-plot" style="height:340px"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" id="strat-signal-title">Signal History</div>
+    <div class="controls" style="margin-bottom:0.9rem">
+      <label>Ticker:</label>
+      <select id="strat-ticker-select">
+        <option value="SPY">SPY</option>
+        <option value="QQQ">QQQ</option>
+        <option value="GLD">GLD</option>
+        <option value="TLT">TLT</option>
+      </select>
+      <label>Signal:</label>
+      <select id="strat-signal-select"></select>
+    </div>
+    <div id="strat-signal-chart" style="height:260px"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" id="strat-all-title">All Strategy Score Signals</div>
+    <div id="strat-all-chart" style="height:360px"></div>
+  </div>
+
+</main>
+</div><!-- end #page-strategy-matrix -->
+
+
+<!-- ═══════════════ CORRELATIONS ═══════════════ -->
+<div id="page-correlations" style="display:none;flex-direction:column">
+  <main>
+    <div class="card">
+      <div class="card-title">Cross-Signal Spearman Correlation <span>Detecting feature redundancy and signal convergence</span></div>
+      <div class="controls" style="margin-bottom:1rem">
+        <label>Ticker:</label>
+        <select id="corr-ticker-select">
+          <option value="SPY">SPY</option>
+          <option value="QQQ">QQQ</option>
+          <option value="GLD">GLD</option>
+          <option value="TLT">TLT</option>
+        </select>
+        <button class="primary" onclick="loadCorrelations()">Update</button>
+      </div>
+      <div id="corr-matrix-plot" style="height:550px"></div>
+    </div>
+    <div class="insight-banner" id="corr-insight" style="margin-top:1rem">
+      Select a ticker to analyze signal correlations. High correlation (>0.8) suggests signal redundancy.
+    </div>
+  </main>
+</div><!-- end #page-correlations -->
+
+
+
+</div>
+
+<div id="status-bar">—</div>
+
+<script>
+const API = '';
+
+/* ═══════════════════════════════════════════════════════
+   STATIC MOCK FETCH — routes /api/* calls to ./data/*.json
+═══════════════════════════════════════════════════════ */
+(function() {
+  const _realFetch = window.fetch.bind(window);
+
+  function parseParams(url) {
+    try {
+      const u = new URL(url, location.href);
+      return { path: u.pathname, params: u.searchParams };
+    } catch(_) {
+      const [pathPart, qs=''] = url.split('?');
+      const params = new URLSearchParams(qs);
+      return { path: pathPart, params };
+    }
+  }
+
+  function mockResponse(data) {
+    return {
+      ok: true, status: 200,
+      json: () => Promise.resolve(data),
+      text: () => Promise.resolve(typeof data === 'string' ? data : JSON.stringify(data)),
+    };
+  }
+
+  function errResponse(msg) {
+    return { ok: false, status: 404, json: () => Promise.reject(new Error(msg)), text: () => Promise.reject(new Error(msg)) };
+  }
+
+  async function loadJson(file) {
+    const resp = await _realFetch('./' + file);
+    if (!resp.ok) throw new Error(`Static data not found: ${file}`);
+    return resp.json();
+  }
+
+  // Convert cells array to z-matrix for heatmap display
+  function cellsToZMatrix(cells, labels) {
+    const f = (v) => v == null ? 0 : v;
+    return labels.map(ly => labels.map(lx => {
+      const c = cells.find(c => c.trend_bin===lx && c.momentum_bin===ly);
+      return c ? f(c.mean_return) : 0;
+    }));
+  }
+
+  window.fetch = async function(url, opts) {
+    if (typeof url !== 'string' || !url.includes('/api/')) return _realFetch(url, opts);
+    const { path, params } = parseParams(url);
+
+    try {
+      // Health check
+      if (path === '/api/health') return mockResponse({ status: 'ok' });
+
+      // Blotter
+      if (path === '/api/blotter') return mockResponse(await loadJson('data/blotter.json'));
+
+      // Dashboard
+      if (path === '/api/dashboard') return mockResponse(await loadJson('data/dashboard.json'));
+
+      // Macro
+      if (path === '/api/macro/snapshot') return mockResponse(await loadJson('data/macro_snapshot.json'));
+      if (path === '/api/macro/history')  return mockResponse(await loadJson('data/macro_history.json'));
+
+      // Signals timeseries
+      const sigMatch = path.match(/^\/api\/signals\/(\w+)$/);
+      if (sigMatch) return mockResponse(await loadJson(`data/signals_${sigMatch[1].toUpperCase()}.json`));
+
+      // Regime timeseries
+      const regMatch = path.match(/^\/api\/regime\/(\w+)$/);
+      if (regMatch) return mockResponse(await loadJson(`data/regime_${regMatch[1].toUpperCase()}.json`));
+
+      // Heatmap (returns z-matrix format)
+      if (path === '/api/heatmap') {
+        const ticker  = (params.get('ticker') || 'SPY').toUpperCase();
+        const horizon = params.get('horizon') || '3';
+        const zmap    = await loadJson(`data/heatmap_z_${ticker}.json`);
+        const hData   = zmap[horizon] || zmap['3'] || { x_labels:[], y_labels:[], z:[] };
+        return mockResponse(hData);
+      }
+
+      // Simple exposure validation (dashboard tab)
+      const valMatch = path.match(/^\/api\/validation\/(\w+)$/);
+      if (valMatch) return mockResponse(await loadJson(`data/validation_simple_${valMatch[1].toUpperCase()}.json`));
+
+      // Strategy snapshot
+      if (path === '/api/strategy-snapshot') return mockResponse(await loadJson('data/strategy_snapshot.json'));
+
+      // Strategy signals history
+      const stratSigMatch = path.match(/^\/api\/strategy-signals\/(\w+)$/);
+      if (stratSigMatch) return mockResponse(await loadJson(`data/strategy_signals_${stratSigMatch[1].toUpperCase()}.json`));
+
+      // Correlations
+      const corrMatch = path.match(/^\/api\/correlations\/(\w+)$/);
+      if (corrMatch) return mockResponse(await loadJson(`data/correlations_${corrMatch[1].toUpperCase()}.json`));
+
+      // Research: signal validation
+      const resValMatch = path.match(/^\/api\/research\/validation\/(\w+)$/);
+      if (resValMatch) {
+        const ticker = resValMatch[1].toUpperCase();
+        const signal = params.get('signal') || 'target_exposure';
+        try {
+          return mockResponse(await loadJson(`data/validation_${ticker}_${signal}.json`));
+        } catch(_) {
+          // Fallback to target_exposure
+          return mockResponse(await loadJson(`data/validation_${ticker}_target_exposure.json`));
+        }
+      }
+
+      // Research: regime-conditioned validation
+      const resRegMatch = path.match(/^\/api\/research\/validation-regimes\/(\w+)$/);
+      if (resRegMatch) {
+        const ticker    = resRegMatch[1].toUpperCase();
+        const signal    = params.get('signal') || 'target_exposure';
+        const regimeCol = params.get('regime_col') || 'macro_regime';
+        try {
+          return mockResponse(await loadJson(`data/val_regimes_${ticker}_${signal}_${regimeCol}.json`));
+        } catch(_) {
+          try {
+            return mockResponse(await loadJson(`data/val_regimes_${ticker}_target_exposure_macro_regime.json`));
+          } catch(__) {
+            return mockResponse({ signal, regime_col:regimeCol, horizon_months:3, bins:5, rows:[], summary:[] });
+          }
+        }
+      }
+
+      // Research: cross-bin prediction
+      const crossMatch = path.match(/^\/api\/research\/cross-prediction\/(\w+)$/);
+      if (crossMatch) {
+        const ticker  = crossMatch[1].toUpperCase();
+        const sig_x   = params.get('sig_x') || 'trend_score';
+        const sig_y   = params.get('sig_y') || 'momentum_score';
+        const bins    = params.get('bins')    || '4';
+        const horizon = params.get('horizon') || '3';
+        const sx6 = sig_x.slice(0,6);
+        const sy6 = sig_y.slice(0,6);
+        const fname = `data/cross_${ticker}_${sx6}_${sy6}_b${bins}_h${horizon}.json`;
+        try {
+          return mockResponse(await loadJson(fname));
+        } catch(_) {
+          // Try reverse pair
+          const fname2 = `data/cross_${ticker}_${sy6}_${sx6}_b${bins}_h${horizon}.json`;
+          try {
+            return mockResponse(await loadJson(fname2));
+          } catch(__) {
+            // Return empty - UI handles it gracefully
+            return mockResponse({ sig_x, sig_y, bins:parseInt(bins), horizon:parseInt(horizon), cells:[], summary:{} });
+          }
+        }
+      }
+
+      console.warn('[static mock] Unhandled API path:', path);
+      return errResponse('No static data for: ' + path);
+
+    } catch(e) {
+      console.error('[static mock] Error loading', url, e);
+      return errResponse(e.message);
+    }
+  };
+})();
+
+
+/* ═══════════════════════════════
+   CONSTANTS & COLOUR PALETTES
+═══════════════════════════════ */
+const REGIME_COLORS = {
+  "Trend Up Expansion":    "#00bfa5",
+  "Trend Up":              "#26a69a",
+  "Trend Up Exhaustion":   "#80cbc4",
+  "Compression":           "#ffd54f",
+  "Range / Mean Reversion":"#90a4ae",
+  "Volatility / Chaos":    "#ce93d8",
+  "Reversal Phase":        "#ff8a65",
+  "Trend Down":            "#ef5350",
+  "Trend Down Expansion":  "#e53935",
+  "Trend Down Exhaustion": "#ef9a9a",
+};
+
+const VOL_COLORS = {
+  "compressed": "#ffd54f",
+  "normal":     "#90a4ae",
+  "expanded":   "#ef5350",
+};
+
+const MACRO_REGIME_COLORS = {
+  "Risk-On / Trending":   "#26a69a",
+  "Risk-On / Fragile":    "#ffb74d",
+  "Transition / Mixed":   "#90a4ae",
+  "Correction / High Vol":"#ff8a65",
+  "Risk-Off / Defensive": "#ef5350",
+};
+
+const RESEARCH_SIGNAL_OPTIONS = {
+  target_exposure: "Target Exposure",
+  trend_score:     "Trend Score",
+  momentum_score:  "Momentum Score",
+  confidence:      "Confidence",
+  pb_score:        "Pullback",
+  rv_score:        "Reversal",
+  tf_fast_score:   "TF Fast EMA",
+  sr_score:        "Support/Resistance",
+  breakout_score:  "Breakout",
+  reversion_score: "Mean Reversion",
+  ema_loop_score:  "EMA Consensus",
+};
+
+/* ═══════════════════════════════
+   HELPERS
+═══════════════════════════════ */
+function regimeBadge(regime) {
+  if (!regime) return '<span style="color:var(--muted)">—</span>';
+  const col = REGIME_COLORS[regime] || '#888';
+  return `<span class="regime-badge" style="background:${col}22;color:${col};border:1px solid ${col}44">${regime}</span>`;
+}
+function volBadge(state) {
+  if (!state) return '';
+  const col = VOL_COLORS[state] || '#888';
+  return `<span class="regime-badge" style="background:${col}22;color:${col};border:1px solid ${col}44;font-size:0.7rem">${state}</span>`;
+}
+function macroBadge(regime) {
+  if (!regime) return '<span style="color:var(--muted)">—</span>';
+  const col = MACRO_REGIME_COLORS[regime] || '#888';
+  return `<span class="regime-badge" style="background:${col}22;color:${col};border:1px solid ${col}55">${regime}</span>`;
+}
+
+function macroSentiment(label) {
+  if (!label) return 'neutral';
+  const pos = ['Risk-On', 'VIX Low', 'Above 200DMA', 'Duration Bid', 'Trending'];
+  const neg = ['Risk-Off', 'VIX Stress', 'Below 200DMA', 'Duration Pressure', 'Defensive', 'High Vol'];
+  for (const p of pos) if (label.includes(p)) return 'positive';
+  for (const n of neg) if (label.includes(n)) return 'negative';
+  return 'neutral';
+}
+function macroCardColor(label) {
+  const s = macroSentiment(label);
+  return s === 'positive' ? 'var(--green)' : s === 'negative' ? 'var(--red)' : 'var(--yellow)';
+}
+function macroIcon(label) {
+  const s = macroSentiment(label);
+  return s === 'positive' ? '↑' : s === 'negative' ? '↓' : '→';
+}
+
+function generateMacroInsight(data) {
+  const narrative = {
+    'Risk-On / Trending':   'trending risk-on — momentum, breakout and trend-following strategies historically outperform',
+    'Risk-On / Fragile':    'risk appetite elevated but fragile — pullback entries and S/R levels show edge; watch for deterioration',
+    'Transition / Mixed':   'mixed macro signals — avoid high-conviction directional bets; favor S/R and mean-reversion setups',
+    'Correction / High Vol':'correction with elevated volatility — defensive positioning favored; reduce leverage',
+    'Risk-Off / Defensive': 'defensive regime — bonds and safe havens leading; minimize equity exposure',
+  };
+  const insight = narrative[data.macro_regime] || 'Macro signals are inconclusive — maintain discipline and watch for a catalyst';
+  const scoreDesc = data.macro_regime_score > 0.3 ? 'Strong bullish bias' :
+    data.macro_regime_score > 0.05 ? 'Mild bullish bias' :
+    data.macro_regime_score < -0.3 ? 'Strong bearish bias' :
+    data.macro_regime_score < -0.05 ? 'Mild bearish bias' : 'Neutral';
+  const confDesc = data.macro_regime_confidence > 0.6 ? 'High conviction' :
+    data.macro_regime_confidence > 0.35 ? 'Moderate conviction' : 'Low conviction — signals mixed';
+  const age = data.macro_regime_age != null
+    ? `${data.macro_regime_age} month${data.macro_regime_age === 1 ? '' : 's'}`
+    : '?';
+  return `
+    <div style="display:flex;align-items:flex-start;gap:1rem;flex-wrap:wrap">
+      <div>
+        ${macroBadge(data.macro_regime)}
+        <div style="margin-top:0.5rem;font-size:0.87rem;color:var(--text)">
+          Macro is in a <strong>${insight}</strong>.
+        </div>
+      </div>
+      <div style="display:flex;gap:0.55rem;flex-wrap:wrap;margin-left:auto;align-items:center">
+        <span class="stat-pill">${scoreDesc} (${data.macro_regime_score != null ? data.macro_regime_score.toFixed(2) : '—'})</span>
+        <span class="stat-pill">${confDesc} (${data.macro_regime_confidence != null ? (data.macro_regime_confidence*100).toFixed(0)+'%' : '—'})</span>
+        <span class="stat-pill">Regime age: ${age}</span>
+        <span class="stat-pill">VIX ${data.vix_close != null ? data.vix_close.toFixed(1) : '—'} (${data.vix_regime || '—'})</span>
+      </div>
+    </div>`;
+}
+
+function hexToRgba(hex, alpha) {
+  const h = (hex.length === 4 ? '#'+hex[1]+hex[1]+hex[2]+hex[2]+hex[3]+hex[3] : hex).replace('#','');
+  const r = parseInt(h.slice(0,2),16), g = parseInt(h.slice(2,4),16), b = parseInt(h.slice(4,6),16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+function buildRegimeShapes(dates, regimes, colorMap, alpha = 0.15) {
+  const shapes = [];
+  if (!dates.length) return shapes;
+  let start = dates[0], current = regimes[0];
+  for (let i = 1; i < dates.length; i++) {
+    if (regimes[i] !== current) {
+      shapes.push({ type:'rect', xref:'x', yref:'paper', x0: start, x1: dates[i], y0: 0, y1: 1,
+        fillcolor: hexToRgba(colorMap[current] || '#888888', alpha), line: {width:0}, layer:'below' });
+      current = regimes[i]; start = dates[i];
+    }
+  }
+  shapes.push({ type:'rect', xref:'x', yref:'paper', x0: start, x1: dates[dates.length-1], y0: 0, y1: 1,
+    fillcolor: hexToRgba(colorMap[current] || '#888888', alpha), line: {width:0}, layer:'below' });
+  return shapes;
+}
+
+function setLoader(pct) { document.getElementById('loader').style.width = pct + '%'; }
+function setStatus(msg) { document.getElementById('status-bar').textContent = msg; }
+
+function gaugeHTML(val, lo = -1, hi = 1, invert = false) {
+  if (val == null) return '<span style="color:var(--muted)">—</span>';
+  const pct = Math.min(100, Math.max(0, ((val - lo) / (hi - lo)) * 100));
+  const mid = (hi + lo) / 2;
+  let color;
+  if (invert) {
+    color = val > mid + 0.1 ? 'var(--red)' : val < mid - 0.1 ? 'var(--green)' : 'var(--yellow)';
+  } else {
+    color = val > mid + 0.1 ? 'var(--green)' : val < mid - 0.1 ? 'var(--red)' : 'var(--yellow)';
+  }
+  return `<div class="gauge-wrap"><div class="gauge-track"><div class="gauge-fill" style="width:${pct}%;background:${color}"></div></div><span class="gauge-val" style="color:${color}">${val.toFixed(3)}</span></div>`;
+}
+function fmtPct(v) {
+  if (v == null) return '<span style="color:var(--muted)">—</span>';
+  const pct = (v * 100).toFixed(2);
+  const col = v > 0 ? 'var(--green)' : v < 0 ? 'var(--red)' : 'var(--muted)';
+  return `<span style="color:${col};font-weight:600">${v > 0 ? '+' : ''}${pct}%</span>`;
+}
+function fmt(v) { return v == null ? '—' : typeof v === 'number' ? v.toFixed(3) : v; }
+function fmt2(v) { return v == null ? '—' : typeof v === 'number' ? v.toFixed(2) : v; }
+
+const BASE_LAYOUT = () => ({
+  paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
+  margin: { l: 45, r: 12, t: 12, b: 32 },
+  font: { color: '#e0e0e0', size: 11 },
+  xaxis: { gridcolor: '#2a2d3a', zeroline: false },
+  yaxis: { gridcolor: '#2a2d3a', zeroline: true, zerolinecolor: '#444' },
+  showlegend: true,
+  legend: { x: 0, y: 1, bgcolor: 'transparent', font: { size: 9 } },
+  hovermode: 'x unified',
+});
+const PLOTLY_CFG = { responsive: true, displayModeBar: false };
+
+async function safely(fn, errorTargetId) {
+  try { await fn(); } catch (e) {
+    console.error(e);
+    if (errorTargetId) {
+      const el = document.getElementById(errorTargetId);
+      if (el) el.innerHTML = `<div style="color:var(--red);padding:1rem;font-size:0.83rem">⚠ ${e.message}</div>`;
+    }
+  }
+}
+
+
+/* ═══════════════════════════════
+   DASHBOARD
+═══════════════════════════════ */
+async function loadTradeBlotter() {
+  const tbody = document.getElementById('blotter-body');
+  try {
+    const resp = await fetch(`${API}/api/blotter`);
+    const data = await resp.json();
+    tbody.innerHTML = '';
+    for (const b of data.trades) {
+      const row = document.createElement('tr');
+      const actionCol = b.action === 'LONG' ? 'var(--green)' : b.action === 'SHORT' ? 'var(--red)' : 'var(--muted)';
+      const volCol = b.vol_adjustment === 'DE-RISKED' ? 'var(--yellow)' : 'var(--muted)';
+      row.innerHTML = `
+        <td class="ticker-cell">${b.ticker}</td>
+        <td>${gaugeHTML(b.signal_exposure, -1, 1)}</td>
+        <td style="font-weight:700;color:${actionCol}">${b.action}</td>
+        <td>${(b.confidence * 100).toFixed(0)}%</td>
+        <td style="font-weight:700;color:var(--accent)">${b.suggested_size}</td>
+        <td style="font-size:0.7rem;color:${volCol}">${b.vol_adjustment}</td>
+        <td style="color:var(--muted);font-size:0.7rem">READY</td>
+      `;
+      tbody.appendChild(row);
+    }
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="7" style="color:var(--red);text-align:center">${e.message}</td></tr>`;
+  }
+}
+
+async function loadDashboard() {
+  setLoader(15);
+  try {
+    const resp = await fetch(`${API}/api/dashboard?tickers=SPY&tickers=QQQ&tickers=GLD&tickers=TLT`);
+    const data = await resp.json();
+    const tbody = document.getElementById('overview-body');
+    const regimeCards = document.getElementById('regime-cards');
+    tbody.innerHTML = '';
+    regimeCards.innerHTML = '';
+
+    for (const r of data.rows) {
+      const row = document.createElement('tr');
+      row.innerHTML = `
+        <td class="ticker-cell">${r.ticker}</td>
+        <td style="color:var(--muted);font-size:0.8rem">${r.date}</td>
+        <td><strong>$${r.close != null ? r.close.toFixed(2) : '—'}</strong></td>
+        <td>${regimeBadge(r.market_regime)}</td>
+        <td class="bar-cell">${gaugeHTML(r.trend_score, -1, 1)}</td>
+        <td class="bar-cell">${gaugeHTML(r.momentum_score, -1, 1)}</td>
+        <td class="bar-cell">${gaugeHTML(r.confidence, 0, 1)}</td>
+        <td class="bar-cell">${gaugeHTML(r.risk_pressure, 0, 1, true)}</td>
+        <td class="bar-cell">${gaugeHTML(r.exit_hazard, 0, 1, true)}</td>
+        <td class="bar-cell">${gaugeHTML(r.target_exposure, -1, 1)}</td>
+        <td>${fmtPct(r.fwd_return_1m)}</td>
+        <td>${fmtPct(r.fwd_return_3m)}</td>
+        <td style="color:var(--muted);font-size:0.8rem">${r.universe_rank_pct != null ? (r.universe_rank_pct*100).toFixed(0)+'%' : '—'}</td>
+      `;
+      tbody.appendChild(row);
+
+      const card = document.createElement('div');
+      card.className = 'regime-card-item';
+      card.innerHTML = `
+        <span class="regime-card-ticker">${r.ticker}</span>
+        ${regimeBadge(r.market_regime)}
+        <span style="font-size:0.72rem;color:var(--muted)">${volBadge(r.volatility_state)} ${r.volatility_state || ''}</span>
+      `;
+      regimeCards.appendChild(card);
+    }
+
+    document.getElementById('last-update').textContent = 'Updated ' + new Date().toLocaleTimeString();
+    setLoader(45);
+  } catch (e) {
+    setStatus('Error loading dashboard: ' + e.message);
+  }
+}
+
+async function loadDashboardMacroCard() {
+  try {
+    const resp = await fetch(`${API}/api/macro/snapshot`);
+    if (!resp.ok) return;
+    const d = await resp.json();
+    document.getElementById('macro-snapshot-date').textContent = d.date;
+    const col = macroCardColor(d.macro_regime);
+    document.getElementById('dashboard-macro-card').innerHTML = `
+      <div style="margin-bottom:0.5rem">${macroBadge(d.macro_regime)}</div>
+      <div style="display:flex;flex-direction:column;gap:0.25rem">
+        <span>VIX <strong style="color:${d.vix_close>30?'var(--red)':d.vix_close>20?'var(--yellow)':'var(--green)'}">${d.vix_close!=null?d.vix_close.toFixed(1):'—'}</strong> <span style="color:var(--muted);font-size:0.75rem">${d.vix_regime||''}</span></span>
+        <span>${d.market_200dma_state||'—'} <span style="color:var(--muted);font-size:0.75rem">(${d.market_200dma_gap!=null?(d.market_200dma_gap*100).toFixed(1)+'%' :'—'})</span></span>
+        <span style="color:var(--muted);font-size:0.75rem">${d.vaa_regime||'—'} · ${d.rates_regime||'—'}</span>
+        <span style="font-size:0.75rem">Score <strong style="color:${col}">${d.macro_regime_score!=null?d.macro_regime_score.toFixed(2):'—'}</strong> · Age ${d.macro_regime_age!=null?d.macro_regime_age+'mo':'—'}</span>
+      </div>
+    `;
+    // Update live header
+    document.getElementById('header-macro-badge').innerHTML = macroBadge(d.macro_regime);
+    const vixEl = document.getElementById('header-vix');
+    vixEl.textContent = d.vix_close != null ? d.vix_close.toFixed(1) : '—';
+    vixEl.style.color = d.vix_close > 30 ? 'var(--red)' : d.vix_close > 20 ? 'var(--yellow)' : 'var(--green)';
+    const scoreEl = document.getElementById('header-score');
+    scoreEl.textContent = d.macro_regime_score != null ? d.macro_regime_score.toFixed(2) : '—';
+    scoreEl.style.color = d.macro_regime_score > 0.1 ? 'var(--green)' : d.macro_regime_score < -0.1 ? 'var(--red)' : 'var(--yellow)';
+  } catch (_) {}
+}
+
+async function loadCharts(ticker) {
+  setStatus(`Loading signals for ${ticker}…`);
+  let raw;
+  try {
+    const resp = await fetch(`${API}/api/signals/${ticker}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    raw = await resp.json();
+  } catch (e) { setStatus('Error: ' + e.message); return; }
+
+  const dates = Object.keys(raw);
+  const get = (key) => dates.map(d => (raw[d] && raw[d][key] !== undefined) ? raw[d][key] : null);
+  const L = BASE_LAYOUT;
+
+  Plotly.newPlot('chart-trend', [
+    { x: dates, y: get('trend_score'), name: 'Trend Score', line: { color: '#4f8ef7', width: 2 }, type: 'scatter', mode: 'lines',
+      hovertemplate: '%{x}<br>Trend: %{y:.3f}<extra></extra>' },
+    { x: dates, y: dates.map(()=>0), showlegend: false, line: { color:'#444', width:1, dash:'dot' }, type:'scatter', mode:'lines' },
+  ], { ...L(), yaxis: {...L().yaxis, range:[-1.1,1.1]} }, PLOTLY_CFG);
+
+  Plotly.newPlot('chart-momentum', [
+    { x: dates, y: get('momentum_score'), name: 'Momentum', line: { color: '#26a69a', width: 2 }, type: 'scatter', mode: 'lines',
+      hovertemplate: '%{x}<br>Momentum: %{y:.3f}<extra></extra>' },
+    { x: dates, y: dates.map(()=>0), showlegend: false, line: { color:'#444', width:1, dash:'dot' }, type:'scatter', mode:'lines' },
+  ], { ...L(), yaxis: {...L().yaxis, range:[-1.1,1.1]} }, PLOTLY_CFG);
+
+  const close = get('Close');
+  const maxClose = Math.max(...close.filter(v=>v!=null));
+  Plotly.newPlot('chart-exposure', [
+    { x: dates, y: get('target_exposure'), name: 'Target Exposure', yaxis: 'y', line: {color:'#ffd54f', width:2}, type:'scatter', mode:'lines',
+      hovertemplate: '%{x}<br>Exposure: %{y:.3f}<extra></extra>' },
+    { x: dates, y: close.map(v=>v==null?null:v/maxClose), name: 'Price (norm)', yaxis: 'y2',
+      line: {color:'#666', width:1, dash:'dot'}, type:'scatter', mode:'lines',
+      hovertemplate: '%{x}<br>Price (norm): %{y:.3f}<extra></extra>' },
+    { x: dates, y: get('fwd_return_1m'), name: '1m Fwd Rtn', yaxis: 'y',
+      line: {color:'#ff8a6588', width:1, dash:'dash'}, type:'scatter', mode:'lines',
+      hovertemplate: '%{x}<br>1m Fwd: %{y:.3f}<extra></extra>' },
+  ], {
+    ...L(),
+    yaxis: { gridcolor:'#2a2d3a', zeroline:true, zerolinecolor:'#444', title:{text:'Score / Return', font:{size:9}} },
+    yaxis2: { overlaying:'y', side:'right', showgrid:false },
+  }, PLOTLY_CFG);
+
+  Plotly.newPlot('chart-risk', [
+    { x: dates, y: get('risk_pressure'), name: 'Risk Pressure', fill:'tozeroy', fillcolor:'rgba(239,83,80,0.12)',
+      line:{color:'#ef5350', width:1.5}, type:'scatter', mode:'lines',
+      hovertemplate: '%{x}<br>Risk: %{y:.3f}<extra></extra>' },
+    { x: dates, y: get('exit_hazard'), name: 'Exit Hazard', line:{color:'#ff8a65', width:1.5, dash:'dash'}, type:'scatter', mode:'lines',
+      hovertemplate: '%{x}<br>Exit Hazard: %{y:.3f}<extra></extra>' },
+    { x: dates, y: get('confidence'), name: 'Confidence', line:{color:'#4f8ef744', width:1, dash:'dot'}, type:'scatter', mode:'lines',
+      hovertemplate: '%{x}<br>Confidence: %{y:.3f}<extra></extra>' },
+  ], L(), PLOTLY_CFG);
+
+  setLoader(70);
+  setStatus(`Charts loaded for ${ticker}`);
+}
+
+async function loadHeatmap(ticker) {
+  const horizon = document.getElementById('heatmap-horizon-select').value;
+  document.getElementById('heatmap-label').textContent = `Mean Fwd Return ${horizon}m`;
+  const resp = await fetch(`${API}/api/heatmap?ticker=${ticker}&horizon=${horizon}`);
+  if (!resp.ok) throw new Error(`Heatmap HTTP ${resp.status}`);
+  const data = await resp.json();
+  Plotly.newPlot('chart-heatmap', [{
+    type: 'heatmap', z: data.z, x: data.x_labels, y: data.y_labels,
+    colorscale: [[0,'#ef5350'],[0.35,'#ffd54f'],[0.5,'#37474f'],[0.65,'#4caf50'],[1,'#26a69a']],
+    colorbar: { tickfont:{color:'#e0e0e0'}, len:0.8, tickformat:'.1%' },
+    zmid: 0,
+    hovertemplate: 'Trend: %{y}<br>Momentum: %{x}<br>Fwd %{meta}m: %{z:.1%}<extra></extra>',
+    meta: horizon,
+  }], {
+    paper_bgcolor:'transparent', plot_bgcolor:'transparent',
+    margin:{l:120,r:20,t:10,b:100}, font:{color:'#e0e0e0', size:10},
+    xaxis:{title:{text:'Momentum Score Bin', font:{size:11}}, tickangle:-30},
+    yaxis:{title:{text:'Trend Score Bin', font:{size:11}}},
+  }, PLOTLY_CFG);
+}
+
+async function loadValidation() {
+  const tickers = ['SPY','QQQ','GLD','TLT'];
+  const grid = document.getElementById('validation-grid');
+  grid.innerHTML = '';
+  for (const t of tickers) {
+    const divId = `val-${t}`;
+    const box = document.createElement('div');
+    box.innerHTML = `<div style="font-size:0.78rem;color:var(--muted);margin-bottom:3px">${t} — Binned Exposure vs Fwd 3m Return</div><div id="${divId}" class="val-plot"></div>`;
+    grid.appendChild(box);
+    try {
+      const resp = await fetch(`${API}/api/validation/${t}`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const rows = await resp.json();
+      const means = rows.map(r => r.mean_fwd_3m != null ? +(r.mean_fwd_3m*100).toFixed(2) : null);
+      Plotly.newPlot(divId, [{
+        x: rows.map(r=>r.exposure_bin), y: means, type:'bar',
+        marker: { color: means.map(v => v==null?'#555':v>=0?'#26a69a':'#ef5350') },
+        hovertemplate: 'Bin: %{x}<br>Mean 3m: %{y:.2f}%<br>n=%{customdata}<extra></extra>',
+        customdata: rows.map(r=>r.n),
+      }], {
+        paper_bgcolor:'transparent', plot_bgcolor:'transparent',
+        margin:{l:38,r:8,t:8,b:85}, font:{color:'#e0e0e0', size:9},
+        xaxis:{gridcolor:'#2a2d3a', tickangle:-35},
+        yaxis:{gridcolor:'#2a2d3a', zeroline:true, zerolinecolor:'#555', title:{text:'Mean Fwd 3m (%)',font:{size:9}}},
+        showlegend:false,
+      }, PLOTLY_CFG);
+    } catch (e) { document.getElementById(divId).textContent = '⚠ ' + e.message; }
+  }
+}
+
+async function loadRegimeChart(ticker) {
+  document.getElementById('chart-regime-title').textContent = `Market Regime History — ${ticker}`;
+  let raw;
+  try {
+    const resp = await fetch(`${API}/api/regime/${ticker}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    raw = await resp.json();
+  } catch (e) {
+    document.getElementById('chart-regime').innerHTML = `<div style="color:var(--red);padding:1rem;font-size:0.83rem">⚠ ${e.message}</div>`;
+    return;
+  }
+  const dates = Object.keys(raw);
+  const regimes = dates.map(d => raw[d]?.market_regime || 'Unknown');
+  const trendScore = dates.map(d => raw[d]?.trend_score ?? null);
+  const shapes = buildRegimeShapes(dates, regimes, REGIME_COLORS, 0.22);
+  const currentRegime = regimes[regimes.length - 1];
+
+  Plotly.newPlot('chart-regime', [
+    {
+      x: dates, y: trendScore, type: 'scatter', mode: 'lines',
+      name: 'Trend Score', line: { color: '#4f8ef7', width: 2 },
+      customdata: regimes,
+      hovertemplate: '%{x}<br>Trend: %{y:.3f}<br>Regime: %{customdata}<extra></extra>',
+    },
+    { x: dates, y: dates.map(()=>0), showlegend:false, line:{color:'#444',width:1,dash:'dot'}, type:'scatter', mode:'lines' },
+  ], {
+    paper_bgcolor:'transparent', plot_bgcolor:'transparent',
+    margin:{l:48,r:12,t:18,b:38},
+    font:{color:'#e0e0e0', size:10},
+    shapes,
+    xaxis:{gridcolor:'#2a2d3a'},
+    yaxis:{gridcolor:'#2a2d3a', zeroline:true, zerolinecolor:'#555', range:[-1.15,1.15], title:{text:'Trend Score',font:{size:10}}},
+    showlegend:false,
+    annotations:[{
+      x: dates[dates.length-1],
+      y: trendScore.filter(v=>v!=null).at(-1) ?? 0,
+      text: '▶ ' + currentRegime,
+      showarrow: false,
+      font: { size: 9, color: REGIME_COLORS[currentRegime] || '#aaa' },
+      xanchor: 'right', yanchor: 'bottom',
+    }],
+  }, PLOTLY_CFG);
+}
+
+async function loadAll() {
+  setLoader(5);
+  setStatus('Loading…');
+  const ticker = document.getElementById('ticker-select').value;
+
+  await safely(loadDashboard, 'overview-body');
+  await safely(loadTradeBlotter, 'blotter-body');
+  await safely(loadDashboardMacroCard);
+  setLoader(35);
+
+  await Promise.allSettled([
+    safely(() => loadCharts(ticker)),
+    safely(() => loadHeatmap(ticker), 'chart-heatmap'),
+    safely(() => loadRegimeChart(ticker), 'chart-regime'),
+  ]);
+  setLoader(72);
+
+  await safely(loadValidation, 'validation-grid');
+  setLoader(100);
+  setStatus('All data loaded ✓');
+  setTimeout(() => setLoader(0), 600);
+}
+
+document.getElementById('ticker-select').addEventListener('change', async () => {
+  const ticker = document.getElementById('ticker-select').value;
+  setLoader(10);
+  await Promise.allSettled([
+    safely(() => loadCharts(ticker)),
+    safely(() => loadHeatmap(ticker), 'chart-heatmap'),
+    safely(() => loadRegimeChart(ticker), 'chart-regime'),
+  ]);
+  setLoader(100);
+  setTimeout(() => setLoader(0), 400);
+});
+document.getElementById('heatmap-horizon-select').addEventListener('change', () => {
+  const ticker = document.getElementById('ticker-select').value;
+  safely(() => loadHeatmap(ticker), 'chart-heatmap');
+});
+
+
+/* ═══════════════════════════════
+   RESEARCH
+═══════════════════════════════ */
+let _researchInitialized = false;
+
+async function loadResearchWorkspace() {
+  if (!_researchInitialized) {
+    const sel = document.getElementById('research-signal-select');
+    sel.innerHTML = '';
+    Object.entries(RESEARCH_SIGNAL_OPTIONS).forEach(([key, label]) => {
+      const opt = document.createElement('option');
+      opt.value = key; opt.textContent = label;
+      if (key === 'target_exposure') opt.selected = true;
+      sel.appendChild(opt);
+    });
+    document.getElementById('research-ticker-select').addEventListener('change', () => {
+      // Keep cross-ticker in sync
+      document.getElementById('cross-ticker-select').value = document.getElementById('research-ticker-select').value;
+      loadResearchValidationViews();
+    });
+    document.getElementById('research-signal-select').addEventListener('change', loadResearchValidationViews);
+    document.getElementById('research-horizon-select').addEventListener('change', loadResearchValidationViews);
+    document.getElementById('research-regime-select').addEventListener('change', loadResearchValidationViews);
+    _researchInitialized = true;
+  }
+  await Promise.allSettled([
+    safely(loadMacroSnapshot, 'macro-cards'),
+    safely(loadMacroHistory, 'macro-history-chart'),
+    safely(loadResearchValidationViews, 'research-decile-chart'),
+  ]);
+  // Auto-run cross-prediction with defaults on first open
+  await safely(loadCrossPrediction, 'cross-heatmap-plot');
+}
+
+async function loadMacroSnapshot() {
+  const resp = await fetch(`${API}/api/macro/snapshot`);
+  if (!resp.ok) throw new Error(`Macro snapshot HTTP ${resp.status}`);
+  const d = await resp.json();
+
+  // Insight banner
+  document.getElementById('macro-insight-banner').innerHTML = generateMacroInsight(d);
+
+  // Colored metric cards
+  const fields = [
+    { label:'Composite Regime',  value: d.macro_regime,          sub: `Score ${fmt2(d.macro_regime_score)} · Age ${d.macro_regime_age!=null?d.macro_regime_age+'mo':'?'} · Conf ${d.macro_regime_confidence!=null?(d.macro_regime_confidence*100).toFixed(0)+'%':'?'}`, state: d.macro_regime },
+    { label:'VIX Regime',        value: d.vix_regime,            sub: `VIX level: ${d.vix_close!=null?d.vix_close.toFixed(1):'—'}`, state: d.vix_regime },
+    { label:'Market vs 200 DMA', value: d.market_200dma_state,   sub: `Gap: ${d.market_200dma_gap!=null?(d.market_200dma_gap*100).toFixed(2)+'%':'—'}`, state: d.market_200dma_state },
+    { label:'VAA Regime',        value: d.vaa_regime,            sub: `Momentum spread: ${fmt(d.vaa_spread)}`, state: d.vaa_regime },
+    { label:'Israel vs Global',  value: d.israel_regime,         sub: `Rel Mom: ${fmt(d.israel_global_spread)}`, state: d.israel_regime },
+    { label:'Rates Regime',      value: d.rates_regime,          sub: `Duration spread: ${fmt(d.rates_duration_spread)}`, state: d.rates_regime },
+  ];
+
+  const cards = document.getElementById('macro-cards');
+  cards.innerHTML = fields.map(f => {
+    const col = macroCardColor(f.state);
+    const icon = macroIcon(f.state);
+    return `<div class="metric-card" style="border-left-color:${col}">
+      <span class="label">${f.label}</span>
+      <span class="value" style="color:${col}">${icon} ${f.value || '—'}</span>
+      <span class="sub">${f.sub}</span>
+    </div>`;
+  }).join('');
+
+  // Update header live bar
+  document.getElementById('header-macro-badge').innerHTML = macroBadge(d.macro_regime);
+  const vixEl = document.getElementById('header-vix');
+  vixEl.textContent = d.vix_close != null ? d.vix_close.toFixed(1) : '—';
+  vixEl.style.color = d.vix_close > 30 ? 'var(--red)' : d.vix_close > 20 ? 'var(--yellow)' : 'var(--green)';
+  const scoreEl = document.getElementById('header-score');
+  scoreEl.textContent = d.macro_regime_score != null ? d.macro_regime_score.toFixed(2) : '—';
+  scoreEl.style.color = d.macro_regime_score > 0.1 ? 'var(--green)' : d.macro_regime_score < -0.1 ? 'var(--red)' : 'var(--yellow)';
+}
+
+async function loadMacroHistory() {
+  const resp = await fetch(`${API}/api/macro/history`);
+  if (!resp.ok) throw new Error(`Macro history HTTP ${resp.status}`);
+  const raw = await resp.json();
+  const dates = Object.keys(raw);
+  const score = dates.map(d => raw[d]?.macro_regime_score ?? null);
+  const confidence = dates.map(d => raw[d]?.macro_regime_confidence ?? null);
+  const vix = dates.map(d => raw[d]?.vix_close ?? null);
+  const regimes = dates.map(d => raw[d]?.macro_regime ?? 'Transition / Mixed');
+  const shapes = buildRegimeShapes(dates, regimes, MACRO_REGIME_COLORS, 0.14);
+
+  Plotly.newPlot('macro-history-chart', [
+    {
+      x: dates, y: score, type:'scatter', mode:'lines',
+      name:'Macro Score', line:{color:'#4f8ef7', width:2.5},
+      customdata: regimes,
+      hovertemplate:'%{x}<br>Score: %{y:.3f}<br>Regime: %{customdata}<extra></extra>',
+    },
+    {
+      x: dates, y: confidence, type:'scatter', mode:'lines',
+      name:'Confidence', line:{color:'#26a69a', width:1.5, dash:'dot'},
+      hovertemplate:'%{x}<br>Confidence: %{y:.0%}<extra></extra>',
+    },
+    {
+      x: dates, y: vix, type:'scatter', mode:'lines',
+      name:'VIX', yaxis:'y2',
+      fill:'tozeroy', fillcolor:'rgba(239,83,80,0.08)',
+      line:{color:'rgba(239,83,80,0.6)', width:1.5},
+      hovertemplate:'%{x}<br>VIX: %{y:.1f}<extra></extra>',
+    },
+  ], {
+    paper_bgcolor:'transparent', plot_bgcolor:'transparent',
+    margin:{l:52,r:60,t:15,b:32},
+    font:{color:'#e0e0e0', size:11},
+    shapes,
+    xaxis:{gridcolor:'#2a2d3a'},
+    yaxis:{gridcolor:'#2a2d3a', zeroline:true, zerolinecolor:'#555', range:[-1.08,1.08], title:{text:'Score / Confidence', font:{size:10}}},
+    yaxis2:{overlaying:'y', side:'right', showgrid:false, range:[0,85], title:{text:'VIX', font:{size:10, color:'rgba(239,83,80,0.6)'}}, tickfont:{color:'rgba(239,83,80,0.6)'}},
+    legend:{x:0,y:1, bgcolor:'transparent', font:{size:9}},
+    hovermode:'x unified',
+  }, PLOTLY_CFG);
+}
+
+async function loadCrossPrediction() {
+  const ticker   = document.getElementById('cross-ticker-select').value;
+  const sigX     = document.getElementById('cross-sig-x').value;
+  const sigY     = document.getElementById('cross-sig-y').value;
+  const bins     = parseInt(document.getElementById('cross-bins').value, 10);
+  const horizon  = parseInt(document.getElementById('cross-horizon').value, 10);
+  const metric   = document.getElementById('cross-metric').value;
+
+  // Update column headers
+  const sigXLabel = document.getElementById('cross-sig-x').selectedOptions[0].text;
+  const sigYLabel = document.getElementById('cross-sig-y').selectedOptions[0].text;
+  document.getElementById('cross-th-x').textContent = sigXLabel + ' Bin';
+  document.getElementById('cross-th-y').textContent = sigYLabel + ' Bin';
+
+  const insightDiv  = document.getElementById('cross-insight-content');
+  const summaryBody = document.getElementById('cross-summary-body');
+  insightDiv.textContent  = 'Loading…';
+  summaryBody.innerHTML   = '<tr><td colspan="7" style="color:var(--muted);text-align:center">Loading…</td></tr>';
+
+  setStatus(`Running cross-prediction for ${ticker} (${sigXLabel} × ${sigYLabel}, ${bins} bins, ${horizon}m)…`);
+  try {
+    const url = `${API}/api/research/cross-prediction/${ticker}?sig_x=${encodeURIComponent(sigX)}&sig_y=${encodeURIComponent(sigY)}&bins=${bins}&horizon=${horizon}`;
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+
+    if (!data.cells || data.cells.length === 0) {
+      insightDiv.innerHTML = '<span style="color:var(--red)">Not enough data for this combination.</span>';
+      return;
+    }
+
+    const labels = data.ordered_labels;            // ['Low','Mid','High'] or ['Q1…','Q4…'] etc.
+    const isReturn  = metric === 'mean_return';
+
+    // Build z-matrix: rows = Y bins (high→low), cols = X bins (low→high)
+    // We reverse Y so that high values are at the top of the chart
+    const xLabels = [...labels];
+    const yLabels = [...labels].reverse();
+
+    const z = yLabels.map(ly =>
+      xLabels.map(lx => {
+        const cell = data.cells.find(c => c.bin_x === lx && c.bin_y === ly);
+        if (!cell || cell[metric] == null) return null;
+        return isReturn ? +(cell[metric] * 100).toFixed(2) : +(cell[metric] * 100).toFixed(1);
+      })
+    );
+
+    const textMatrix = yLabels.map(ly =>
+      xLabels.map(lx => {
+        const cell = data.cells.find(c => c.bin_x === lx && c.bin_y === ly);
+        if (!cell || cell[metric] == null) return 'n/a';
+        const mainVal = isReturn
+          ? `${cell.mean_return >= 0 ? '+' : ''}${(cell.mean_return * 100).toFixed(2)}%`
+          : `${(cell.hit_rate * 100).toFixed(1)}%`;
+        return `${mainVal}\nn=${cell.n}`;
+      })
+    );
+
+    const colorscale = isReturn
+      ? [[0,'#ef5350'],[0.5,'#1a1d27'],[1,'#26a69a']]
+      : [[0,'#ef5350'],[0.45,'#ffd54f'],[1,'#26a69a']];
+
+    Plotly.newPlot('cross-heatmap-plot', [{
+      type: 'heatmap',
+      z,
+      x: xLabels,
+      y: yLabels,
+      text: textMatrix,
+      texttemplate: '%{text}',
+      textfont: { size: bins <= 4 ? 11 : 9, color: '#e0e0e0' },
+      colorscale,
+      zmid: isReturn ? 0 : 50,
+      hoverongaps: false,
+      hovertemplate: `${sigXLabel}: %{x}<br>${sigYLabel}: %{y}<br>${isReturn ? 'Mean Rtn' : 'Hit Rate'}: %{z}${isReturn ? '%' : '%'}<extra></extra>`,
+      colorbar: {
+        ticksuffix: '%',
+        tickfont: { color: '#e0e0e0' },
+        len: 0.85,
+        title: { text: isReturn ? 'Rtn %' : 'Hit %', font: { color: '#e0e0e0', size: 10 } }
+      },
+    }], {
+      paper_bgcolor: 'transparent',
+      plot_bgcolor: 'transparent',
+      margin: { l: 90, r: 20, t: 40, b: 90 },
+      font: { color: '#e0e0e0', size: 11 },
+      xaxis: {
+        title: { text: sigXLabel, font: { size: 11 } },
+        tickangle: bins >= 6 ? 35 : 0,
+        gridcolor: '#2a2d3a',
+      },
+      yaxis: {
+        title: { text: sigYLabel, font: { size: 11 } },
+        gridcolor: '#2a2d3a',
+      },
+      title: {
+        text: `${sigXLabel} × ${sigYLabel} → ${isReturn ? 'Mean Fwd Return' : 'Hit Rate'} (${horizon}m, ${bins}-bin)`,
+        font: { size: 12.5, color: '#c5cae9' },
+        y: 0.98,
+      },
+    }, PLOTLY_CFG);
+
+    // ── Insight panel ────────────────────────────────────────────────────────
+    const s = data.summary;
+    const best = s.best_cell;
+    const worst = s.worst_cell;
+    const diagSpread = s.diagonal_spread;
+    const hasSynergy = diagSpread != null && diagSpread > 0.005;
+    const synergyMsg = hasSynergy
+      ? `<strong style="color:var(--green)">↑ Joint signal synergy detected</strong> — when both signals are high, returns are ${(diagSpread * 100).toFixed(2)}% better than when both are low (diagonal spread = ${(diagSpread * 100).toFixed(2)}%).`
+      : `<span style="color:var(--yellow)">⚠ Weak diagonal spread</span> — signals may not compound their predictive power together.`;
+
+    const bestStr = best
+      ? `${sigXLabel}: <strong>${best.bin_x}</strong> + ${sigYLabel}: <strong>${best.bin_y}</strong> → <strong style="color:var(--green)">${best.mean_return >= 0 ? '+' : ''}${(best.mean_return * 100).toFixed(2)}%</strong> mean ${horizon}m return (n=${best.n})`
+      : '—';
+    const worstStr = worst
+      ? `${sigXLabel}: <strong>${worst.bin_x}</strong> + ${sigYLabel}: <strong>${worst.bin_y}</strong> → <strong style="color:var(--red)">${worst.mean_return >= 0 ? '+' : ''}${(worst.mean_return * 100).toFixed(2)}%</strong> mean ${horizon}m return (n=${worst.n})`
+      : '—';
+
+    insightDiv.innerHTML = `
+      <div style="font-size:0.84rem;line-height:1.65">
+        ${synergyMsg}
+        <div style="margin-top:0.75rem;display:flex;flex-direction:column;gap:0.4rem">
+          <div>🏆 <strong>Best combo:</strong> ${bestStr}</div>
+          <div>⚠️ <strong>Worst combo:</strong> ${worstStr}</div>
+          <div style="margin-top:0.3rem;color:var(--muted);font-size:0.78rem">
+            Total observations: ${s.n_total} · ${bins}×${bins} = ${bins*bins} cells
+          </div>
+        </div>
+      </div>`;
+
+    // ── Summary table — all cells ranked by mean return ────────────────────
+    const populated = data.cells
+      .filter(c => c.mean_return != null)
+      .sort((a, b) => b.mean_return - a.mean_return);
+    summaryBody.innerHTML = '';
+    populated.forEach((c, i) => {
+      const rCol = c.mean_return >= 0 ? 'var(--green)' : 'var(--red)';
+      const hrCol = c.hit_rate >= 0.5 ? 'var(--green)' : c.hit_rate >= 0.4 ? 'var(--yellow)' : 'var(--red)';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td style="color:var(--muted);font-size:0.78rem">${i + 1}</td>
+        <td style="font-weight:600">${c.bin_x}</td>
+        <td style="font-weight:600">${c.bin_y}</td>
+        <td style="color:${rCol};font-weight:700">${c.mean_return >= 0 ? '+' : ''}${(c.mean_return * 100).toFixed(2)}%</td>
+        <td style="color:${hrCol}">${c.hit_rate != null ? (c.hit_rate * 100).toFixed(1) + '%' : '—'}</td>
+        <td style="color:var(--muted)">${c.std_return != null ? (c.std_return * 100).toFixed(2) + '%' : '—'}</td>
+        <td style="color:var(--muted)">${c.n}</td>
+      `;
+      summaryBody.appendChild(tr);
+    });
+    setStatus(`Cross-prediction loaded: ${sigXLabel} × ${sigYLabel}`);
+
+  } catch (e) {
+    insightDiv.innerHTML = `<span style="color:var(--red)">⚠ ${e.message}</span>`;
+    setStatus('Error: ' + e.message);
+  }
+}
+
+async function loadCorrelations() {
+  const ticker = document.getElementById('corr-ticker-select').value;
+  const plotDiv = document.getElementById('corr-matrix-plot');
+  const insightDiv = document.getElementById('corr-insight');
+  
+  setStatus(`Loading correlations for ${ticker}...`);
+  try {
+    const resp = await fetch(`${API}/api/correlations/${ticker}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    const matrix = data.matrix;
+    const cols = Object.keys(matrix);
+    
+    const z = cols.map(c1 => cols.map(c2 => matrix[c1][c2]));
+    
+    const trace = {
+      z: z,
+      x: cols,
+      y: cols,
+      type: 'heatmap',
+      colorscale: [
+        [0, '#ef5350'],   // -1
+        [0.5, '#1a1d27'], // 0
+        [1, '#26a69a']    // +1
+      ],
+      zmin: -1,
+      zmax: 1,
+      hoverongaps: false,
+      hovertemplate: '%{x} vs %{y}<br>Correlation: %{z:.3f}<extra></extra>'
+    };
+
+    const layout = {
+      ...BASE_LAYOUT(),
+      margin: { l: 120, r: 20, t: 20, b: 100 },
+      xaxis: { tickangle: 45, gridcolor: '#2a2d3a' },
+      yaxis: { autorange: 'reversed', gridcolor: '#2a2d3a' }
+    };
+
+    Plotly.newPlot(plotDiv, [trace], layout, PLOTLY_CFG);
+    
+    // Simple insight logic
+    let highCorr = [];
+    for(let i=0; i<cols.length; i++) {
+      for(let j=i+1; j<cols.length; j++) {
+        const val = matrix[cols[i]][cols[j]];
+        if (Math.abs(val) > 0.85) {
+          highCorr.push(`<strong>${cols[i]}</strong> & <strong>${cols[j]}</strong> (${val.toFixed(2)})`);
+        }
+      }
+    }
+    
+    if (highCorr.length > 0) {
+      insightDiv.innerHTML = `⚠️ <strong>High Redundancy Detected:</strong> The following signals are highly correlated: ${highCorr.join(', ')}. Consider diversifying signal logic or reducing weights of overlapping features.`;
+    } else {
+      insightDiv.innerHTML = `✅ <strong>Signal Independence:</strong> No extreme correlations detected (>0.85). The current feature set provides unique diversified perspectives.`;
+    }
+    
+    setStatus(`Correlations loaded for ${ticker}`);
+  } catch (e) {
+    setStatus('Error: ' + e.message);
+  }
+}
+
+async function loadResearchValidationViews() {
+  const ticker = document.getElementById('research-ticker-select').value;
+  const signal = document.getElementById('research-signal-select').value;
+  const horizon = parseInt(document.getElementById('research-horizon-select').value, 10);
+  const regimeCol = document.getElementById('research-regime-select').value;
+  const signalLabel = RESEARCH_SIGNAL_OPTIONS[signal] || signal;
+  const regimeLabel = regimeCol === 'macro_regime' ? 'Macro Regime' : 'Technical Regime';
+
+  document.getElementById('research-decile-title').textContent = `${signalLabel} — Decile Returns, All Horizons`;
+  document.getElementById('research-regime-title').textContent = `${signalLabel} — Top/Bottom Spread by ${regimeLabel}`;
+
+  const [uncondResp, condResp] = await Promise.all([
+    fetch(`${API}/api/research/validation/${ticker}?signal=${encodeURIComponent(signal)}&bins=10`),
+    fetch(`${API}/api/research/validation-regimes/${ticker}?signal=${encodeURIComponent(signal)}&regime_col=${encodeURIComponent(regimeCol)}&bins=5&horizon=${horizon}`),
+  ]);
+  if (!uncondResp.ok) throw new Error(`Validation HTTP ${uncondResp.status}`);
+  if (!condResp.ok) throw new Error(`Conditioned validation HTTP ${condResp.status}`);
+
+  const uncond = await uncondResp.json();
+  const cond   = await condResp.json();
+
+  // ── Multi-horizon summary table
+  const tableRows = [1, 3, 6].map(h => {
+    const s = uncond.summary.find(r => r.horizon_months === h);
+    if (!s) return `<tr><td>${h}m</td><td colspan="4" style="color:var(--muted);font-size:0.78rem">Not available</td></tr>`;
+    const rhoCol = s.spearman_rho != null ?
+      (s.spearman_rho > 0.35 ? 'var(--green)' : s.spearman_rho > 0.1 ? 'var(--yellow)' : s.spearman_rho < -0.1 ? 'var(--red)' : 'var(--muted)') : '';
+    const sig = s.spearman_pvalue != null ?
+      (s.spearman_pvalue < 0.01 ? ' ***' : s.spearman_pvalue < 0.05 ? ' **' : s.spearman_pvalue < 0.1 ? ' *' : '') : '';
+    const spreadCol = s.top_minus_bottom != null ? (s.top_minus_bottom > 0 ? 'var(--green)' : 'var(--red)') : '';
+    return `<tr>
+      <td><strong>${h}m</strong></td>
+      <td style="color:${rhoCol};font-variant-numeric:tabular-nums">${s.spearman_rho != null ? s.spearman_rho.toFixed(2)+sig : '—'}</td>
+      <td style="color:var(--muted)">${s.spearman_pvalue != null ? s.spearman_pvalue.toFixed(3) : '—'}</td>
+      <td style="color:${spreadCol};font-weight:600">${s.top_minus_bottom != null ? (s.top_minus_bottom*100).toFixed(2)+'%' : '—'}</td>
+      <td style="color:var(--muted)">${s.n_total || '—'}</td>
+      <td style="color:var(--muted);font-size:0.75rem">${s.best_bin || '—'} best</td>
+    </tr>`;
+  }).join('');
+
+  // ── Best regime card
+  const best = cond.summary
+    .filter(r => r.n_total >= 15 && r.top_minus_bottom != null)
+    .sort((a,b) => b.top_minus_bottom - a.top_minus_bottom)[0];
+  const worst = cond.summary
+    .filter(r => r.n_total >= 15 && r.top_minus_bottom != null)
+    .sort((a,b) => a.top_minus_bottom - b.top_minus_bottom)[0];
+
+  const bestBand = best ? `
+    <div class="best-regime-card">
+      <div style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.4rem">Best regime for ${signalLabel}</div>
+      <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
+        <span>${macroBadge(best.regime)}</span>
+        <span style="font-size:0.87rem">Spread: <strong style="color:var(--green)">${(best.top_minus_bottom*100).toFixed(2)}%</strong></span>
+        <span class="stat-pill">n=${best.n_total}</span>
+        ${best.spearman_rho != null ? `<span class="stat-pill">ρ=${best.spearman_rho.toFixed(2)}</span>` : ''}
+        ${worst && worst.regime !== best.regime ? `<span style="font-size:0.8rem;color:var(--muted)">  Weakest: ${worst.regime} (${(worst.top_minus_bottom*100).toFixed(2)}%)</span>` : ''}
+      </div>
+    </div>` : '';
+
+  document.getElementById('research-summary-area').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr auto;gap:1rem;align-items:start;flex-wrap:wrap">
+      <div>
+        <div style="font-size:0.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.5rem">
+          ${signalLabel} · ${ticker} · Multi-Horizon Monotonicity
+        </div>
+        <table class="hz-table">
+          <thead><tr>
+            <th>Horizon</th><th>Spearman ρ</th><th>p-value</th><th>Top−Btm Spread</th><th>n</th><th>Best Bin</th>
+          </tr></thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+        <div class="hz-note">* p&lt;0.1  ** p&lt;0.05  *** p&lt;0.01 · Positive ρ = higher-ranked bins predict higher returns (monotonic signal)</div>
+        ${bestBand}
+      </div>
+    </div>`;
+
+  // ── Decile chart — all 3 horizons grouped
+  const horizonColors = { 1: '#90a4ae', 3: '#4f8ef7', 6: '#26a69a' };
+  const decileTraces = [1, 3, 6].map(h => {
+    const rows = uncond.rows.filter(r => r.horizon_months === h);
+    rows.sort((a,b) => a.signal_bin.localeCompare(b.signal_bin));
+    return {
+      x: rows.map(r => r.signal_bin),
+      y: rows.map(r => r.mean_return != null ? r.mean_return * 100 : null),
+      type: 'bar', name: `${h}m return`,
+      marker: { color: horizonColors[h] },
+      customdata: rows.map(r => r.n),
+      hovertemplate: `Bin: %{x}<br>${h}m mean: %{y:.2f}%<br>n=%{customdata}<extra></extra>`,
+    };
+  });
+
+  // Add hit-rate line for selected horizon only
+  const hrRows = uncond.rows.filter(r => r.horizon_months === horizon);
+  hrRows.sort((a,b) => a.signal_bin.localeCompare(b.signal_bin));
+  decileTraces.push({
+    x: hrRows.map(r => r.signal_bin),
+    y: hrRows.map(r => r.hit_rate != null ? r.hit_rate * 100 : null),
+    type: 'scatter', mode: 'lines+markers',
+    name: `${horizon}m hit rate`,
+    yaxis: 'y2',
+    line: { color: '#ffd54f', width: 2 },
+    hovertemplate: 'Bin: %{x}<br>Hit rate: %{y:.1f}%<extra></extra>',
+  });
+
+  Plotly.newPlot('research-decile-chart', decileTraces, {
+    paper_bgcolor:'transparent', plot_bgcolor:'transparent',
+    margin:{l:50,r:52,t:12,b:40}, font:{color:'#e0e0e0', size:10},
+    barmode: 'group',
+    xaxis:{gridcolor:'#2a2d3a'},
+    yaxis:{gridcolor:'#2a2d3a', zeroline:true, zerolinecolor:'#555',
+      title:{text:'Mean Return (%)', font:{size:10}}},
+    yaxis2:{overlaying:'y', side:'right', showgrid:false, range:[0,100],
+      title:{text:`${horizon}m Hit Rate %`, font:{size:10}}},
+    legend:{x:0, y:1, bgcolor:'transparent', font:{size:9}},
+    hovermode:'x unified',
+  }, PLOTLY_CFG);
+
+  // ── Regime-conditioned spread chart with annotations
+  const regimeLabels = cond.summary.map(r => r.regime);
+  const spreads      = cond.summary.map(r => r.top_minus_bottom != null ? r.top_minus_bottom * 100 : null);
+  const spreadColors = spreads.map(v => v == null ? '#555' : v >= 0 ? '#26a69a' : '#ef5350');
+  const annotations  = cond.summary.map((r, i) => ({
+    x: r.regime,
+    y: spreads[i] != null ? spreads[i] : 0,
+    text: `n=${r.n_total}${r.spearman_rho != null ? '<br>ρ='+r.spearman_rho.toFixed(2) : ''}`,
+    showarrow: false,
+    font: { size: 8.5, color: '#bbb' },
+    yanchor: (spreads[i] != null && spreads[i] >= 0) ? 'bottom' : 'top',
+    yshift: (spreads[i] != null && spreads[i] >= 0) ? 4 : -4,
+  }));
+
+  Plotly.newPlot('research-regime-chart', [{
+    x: regimeLabels, y: spreads, type: 'bar',
+    marker: { color: spreadColors },
+    customdata: cond.summary.map(r => r.n_total),
+    hovertemplate: 'Regime: %{x}<br>Top−Bottom: %{y:.2f}%<br>n=%{customdata}<extra></extra>',
+  }], {
+    paper_bgcolor:'transparent', plot_bgcolor:'transparent',
+    margin:{l:52,r:12,t:12,b:90}, font:{color:'#e0e0e0', size:10},
+    xaxis:{gridcolor:'#2a2d3a', tickangle:-28},
+    yaxis:{gridcolor:'#2a2d3a', zeroline:true, zerolinecolor:'#555',
+      title:{text:`Top−Bottom Spread % (${horizon}m)`, font:{size:10}}},
+    annotations,
+    showlegend:false,
+  }, PLOTLY_CFG);
+}
+
+
+/* ═══════════════════════════════
+   STRATEGY MATRIX
+═══════════════════════════════ */
+let _strategyMeta   = {};
+let _strategyLoaded = false;
+
+async function loadStrategyMatrix() {
+  if (_strategyLoaded) return;
+
+  let snap;
+  try {
+    const resp = await fetch(`${API}/api/strategy-snapshot?tickers=SPY&tickers=QQQ&tickers=GLD&tickers=TLT`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    snap = await resp.json();
+    _strategyMeta = snap.meta || {};
+    _strategyLoaded = true;
+  } catch (e) {
+    document.getElementById('strat-matrix-plot').innerHTML = `<div style="color:var(--red);padding:1rem">⚠ ${e.message}</div>`;
+    return;
+  }
+
+  const sigCols = snap.signals;
+  const sigLabels = sigCols.map(s => (_strategyMeta[s] && _strategyMeta[s].label) ? _strategyMeta[s].label : s);
+  const tickerList = snap.rows.map(r => r.ticker);
+  const zMatrix = snap.rows.map(r => sigCols.map(s => r[s] !== null ? r[s] : 0));
+
+  // Composite score column (mean of the 7 score signals)
+  const scoreKeys = ['pb_score','rv_score','tf_fast_score','sr_score','breakout_score','reversion_score','ema_loop_score'];
+  const compositeScores = snap.rows.map(r => {
+    const vals = scoreKeys.filter(k => r[k] != null).map(k => r[k]);
+    return vals.length ? vals.reduce((a,b) => a+b, 0) / vals.length : 0;
+  });
+
+  const allSigLabels = [...sigLabels, 'COMPOSITE ▸'];
+  const allZMatrix   = zMatrix.map((row, i) => [...row, compositeScores[i]]);
+  const textMatrix   = allZMatrix.map(row => row.map(v => v.toFixed(2)));
+
+  const cs = [[0,'#ef5350'],[0.25,'#ff8a65'],[0.5,'#2a2d3a'],[0.75,'#66bb6a'],[1,'#26a69a']];
+
+  Plotly.newPlot('strat-matrix-plot', [{
+    type: 'heatmap',
+    z: allZMatrix, x: allSigLabels, y: tickerList,
+    text: textMatrix, texttemplate: '%{text}', textfont: { size: 9, color: '#e0e0e0' },
+    colorscale: cs, zmid: 0, zmin: -1, zmax: 1,
+    hovertemplate: '%{y} — %{x}: %{z:.3f}<extra></extra>',
+    showscale: true, colorbar: { tickfont:{color:'#e0e0e0'}, len:0.8 },
+  }], {
+    paper_bgcolor:'transparent', plot_bgcolor:'transparent',
+    margin:{l:60, r:20, t:15, b:135},
+    font:{color:'#e0e0e0', size:11},
+    xaxis:{ tickangle:-40 },
+    yaxis:{ autorange:'reversed' },
+    shapes:[{ type:'line', x0: sigLabels.length-0.5, x1: sigLabels.length-0.5,
+               y0:-0.5, y1:tickerList.length-0.5, line:{color:'#4f8ef7',width:2} }],
+  }, PLOTLY_CFG);
+
+  // Signal select dropdown
+  const sel = document.getElementById('strat-signal-select');
+  sel.innerHTML = '';
+  sigCols.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s;
+    opt.textContent = (_strategyMeta[s] && _strategyMeta[s].label) ? _strategyMeta[s].label : s;
+    sel.appendChild(opt);
+  });
+
+  sel.addEventListener('change', _reloadSignalChart);
+  document.getElementById('strat-ticker-select').addEventListener('change', () => {
+    _reloadSignalChart();
+    _reloadAllChart();
+  });
+
+  await safely(_reloadSignalChart, 'strat-signal-chart');
+  await safely(_reloadAllChart,    'strat-all-chart');
+}
+
+async function _reloadSignalChart() {
+  const ticker = document.getElementById('strat-ticker-select').value;
+  const signal = document.getElementById('strat-signal-select').value;
+  const label  = (_strategyMeta[signal] && _strategyMeta[signal].label) ? _strategyMeta[signal].label : signal;
+  const color  = (_strategyMeta[signal] && _strategyMeta[signal].color) ? _strategyMeta[signal].color : '#4f8ef7';
+  document.getElementById('strat-signal-title').textContent = `${label} — ${ticker}`;
+
+  let raw;
+  try {
+    const resp = await fetch(`${API}/api/strategy-signals/${ticker}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    raw = await resp.json();
+  } catch (e) {
+    document.getElementById('strat-signal-chart').innerHTML = `<div style="color:var(--red);padding:1rem;font-size:0.83rem">⚠ ${e.message}</div>`;
+    return;
+  }
+  const dates  = Object.keys(raw);
+  const values = dates.map(d => raw[d] && raw[d][signal] !== undefined ? raw[d][signal] : null);
+
+  Plotly.newPlot('strat-signal-chart', [
+    { x:dates, y:values, type:'scatter', mode:'lines', name:label,
+      line:{color, width:2}, fill:'tozeroy', fillcolor:color+'18',
+      hovertemplate:'%{x}<br>'+label+': %{y:.3f}<extra></extra>' },
+    { x:dates, y:dates.map(()=>0), showlegend:false,
+      line:{color:'#555',width:1,dash:'dot'}, type:'scatter', mode:'lines' },
+  ], {
+    paper_bgcolor:'transparent', plot_bgcolor:'transparent',
+    margin:{l:50,r:12,t:12,b:32}, font:{color:'#e0e0e0', size:11},
+    xaxis:{gridcolor:'#2a2d3a'},
+    yaxis:{gridcolor:'#2a2d3a', zeroline:true, zerolinecolor:'#555', range:[-1.15,1.15]},
+    showlegend:false,
+  }, PLOTLY_CFG);
+}
+
+async function _reloadAllChart() {
+  const ticker = document.getElementById('strat-ticker-select').value;
+  document.getElementById('strat-all-title').textContent = `All Strategy Score Signals — ${ticker}`;
+
+  let raw;
+  try {
+    const resp = await fetch(`${API}/api/strategy-signals/${ticker}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    raw = await resp.json();
+  } catch (e) {
+    document.getElementById('strat-all-chart').innerHTML = `<div style="color:var(--red);padding:1rem;font-size:0.83rem">⚠ ${e.message}</div>`;
+    return;
+  }
+
+  const dates = Object.keys(raw);
+  const scoreSignals = ['pb_score','rv_score','tf_fast_score','sr_score','breakout_score','reversion_score','ema_loop_score'];
+
+  const traces = scoreSignals.map(sig => ({
+    x: dates,
+    y: dates.map(d => raw[d] && raw[d][sig] !== undefined ? raw[d][sig] : null),
+    type:'scatter', mode:'lines',
+    name: (_strategyMeta[sig] && _strategyMeta[sig].label) ? _strategyMeta[sig].label : sig,
+    line: { color: (_strategyMeta[sig] && _strategyMeta[sig].color) ? _strategyMeta[sig].color : '#888', width:1.5 },
+    hovertemplate:'%{x}<br>%{fullData.name}: %{y:.3f}<extra></extra>',
+  }));
+
+  // Composite trace
+  const composite = dates.map(d => {
+    const vals = scoreSignals.filter(s => raw[d] && raw[d][s] != null).map(s => raw[d][s]);
+    return vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : null;
+  });
+  traces.push({
+    x: dates, y: composite, type:'scatter', mode:'lines',
+    name: 'Composite', line: { color:'#ffffff', width:2.5, dash:'dot' },
+    hovertemplate:'%{x}<br>Composite: %{y:.3f}<extra></extra>',
+  });
+  traces.push({ x:dates, y:dates.map(()=>0), showlegend:false,
+    line:{color:'#555',width:1,dash:'dot'}, type:'scatter', mode:'lines' });
+
+  Plotly.newPlot('strat-all-chart', traces, {
+    paper_bgcolor:'transparent', plot_bgcolor:'transparent',
+    margin:{l:50,r:12,t:12,b:32}, font:{color:'#e0e0e0', size:10},
+    xaxis:{gridcolor:'#2a2d3a'},
+    yaxis:{gridcolor:'#2a2d3a', zeroline:true, zerolinecolor:'#555', range:[-1.15,1.15]},
+    legend:{x:0,y:1, bgcolor:'transparent', font:{size:9}},
+    hovermode:'x unified',
+  }, PLOTLY_CFG);
+}
+
+
+
+
+/* ═══════════════════════════════
+   TAB SWITCHING & INIT
+═══════════════════════════════ */
+const TAB_IDS = ['dashboard','research', 'strategy-matrix', 'correlations'];
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach((btn, i) => {
+    btn.classList.toggle('active', TAB_IDS[i] === tab);
+  });
+  document.getElementById('page-dashboard').style.display       = tab==='dashboard'       ? 'block' : 'none';
+  document.getElementById('page-research').style.display        = tab==='research'        ? 'flex'  : 'none';
+  document.getElementById('page-strategy-matrix').style.display = tab==='strategy-matrix' ? 'flex'  : 'none';
+  document.getElementById('page-correlations').style.display    = tab==='correlations'    ? 'flex'  : 'none';
+  if (tab === 'research')        { loadResearchWorkspace();  }
+  if (tab === 'strategy-matrix') { loadStrategyMatrix();     }
+  if (tab === 'correlations')    { loadCorrelations();       }
+}
+
+(async function init() { await loadAll(); })();
+</script>
+</body>
+</html>
