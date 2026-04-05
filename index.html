@@ -6,6 +6,7 @@
   <title>Trend Engine — Institutional Dashboard</title>
   <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="data/static_data.js"></script>
   <style>
     :root {
       --bg: #0f1117;
@@ -592,161 +593,108 @@
 const API = '';
 
 /* ═══════════════════════════════════════════════════════
-   STATIC MOCK FETCH — routes /api/* calls to ./data/*.json
+   STATIC MOCK FETCH — reads from window.STATIC_DATA
+   (no network requests — works with file:// and GitHub Pages)
 ═══════════════════════════════════════════════════════ */
 (function() {
   const _realFetch = window.fetch.bind(window);
 
+  function D(key) { return window.STATIC_DATA && window.STATIC_DATA[key]; }
+
   function parseParams(url) {
-    try {
-      const u = new URL(url, location.href);
-      return { path: u.pathname, params: u.searchParams };
-    } catch(_) {
-      const [pathPart, qs=''] = url.split('?');
-      const params = new URLSearchParams(qs);
-      return { path: pathPart, params };
-    }
+    // Avoid new URL() with file:// base — on Windows it prepends /C: to the pathname
+    const qIdx = (url || '').indexOf('?');
+    const path = qIdx === -1 ? url : url.slice(0, qIdx);
+    const qs   = qIdx === -1 ? '' : url.slice(qIdx + 1);
+    // Strip any leading drive prefix like /C: that may appear in file:// context
+    const cleanPath = path.replace(/^\/[A-Za-z]:/, '');
+    return { path: cleanPath, params: new URLSearchParams(qs) };
   }
 
-  function mockResponse(data) {
-    return {
-      ok: true, status: 200,
+  function ok(data) {
+    return { ok: true, status: 200,
       json: () => Promise.resolve(data),
-      text: () => Promise.resolve(typeof data === 'string' ? data : JSON.stringify(data)),
-    };
+      text: () => Promise.resolve(JSON.stringify(data)) };
+  }
+  function miss(key) {
+    const msg = `Static data key not found: ${key}`;
+    console.warn('[static mock]', msg);
+    return { ok: false, status: 404,
+      json: () => Promise.reject(new Error(msg)),
+      text: () => Promise.reject(new Error(msg)) };
   }
 
-  function errResponse(msg) {
-    return { ok: false, status: 404, json: () => Promise.reject(new Error(msg)), text: () => Promise.reject(new Error(msg)) };
-  }
-
-  async function loadJson(file) {
-    const resp = await _realFetch('./' + file);
-    if (!resp.ok) throw new Error(`Static data not found: ${file}`);
-    return resp.json();
-  }
-
-  // Convert cells array to z-matrix for heatmap display
-  function cellsToZMatrix(cells, labels) {
-    const f = (v) => v == null ? 0 : v;
-    return labels.map(ly => labels.map(lx => {
-      const c = cells.find(c => c.trend_bin===lx && c.momentum_bin===ly);
-      return c ? f(c.mean_return) : 0;
-    }));
-  }
-
-  window.fetch = async function(url, opts) {
+  window.fetch = function(url, opts) {
     if (typeof url !== 'string' || !url.includes('/api/')) return _realFetch(url, opts);
     const { path, params } = parseParams(url);
 
-    try {
-      // Health check
-      if (path === '/api/health') return mockResponse({ status: 'ok' });
+    if (path === '/api/health') return Promise.resolve(ok({ status: 'ok' }));
+    if (path === '/api/blotter') return Promise.resolve(D('blotter') ? ok(D('blotter')) : miss('blotter'));
+    if (path === '/api/dashboard') return Promise.resolve(D('dashboard') ? ok(D('dashboard')) : miss('dashboard'));
+    if (path === '/api/macro/snapshot') return Promise.resolve(D('macro_snapshot') ? ok(D('macro_snapshot')) : miss('macro_snapshot'));
+    if (path === '/api/macro/history')  return Promise.resolve(D('macro_history')  ? ok(D('macro_history'))  : miss('macro_history'));
+    if (path === '/api/strategy-snapshot') return Promise.resolve(D('strategy_snapshot') ? ok(D('strategy_snapshot')) : miss('strategy_snapshot'));
 
-      // Blotter
-      if (path === '/api/blotter') return mockResponse(await loadJson('data/blotter.json'));
+    const sigMatch = path.match(/^\/api\/signals\/(\w+)$/);
+    if (sigMatch) { const k=`signals_${sigMatch[1].toUpperCase()}`; return Promise.resolve(D(k)?ok(D(k)):miss(k)); }
 
-      // Dashboard
-      if (path === '/api/dashboard') return mockResponse(await loadJson('data/dashboard.json'));
+    const regMatch = path.match(/^\/api\/regime\/(\w+)$/);
+    if (regMatch) { const k=`regime_${regMatch[1].toUpperCase()}`; return Promise.resolve(D(k)?ok(D(k)):miss(k)); }
 
-      // Macro
-      if (path === '/api/macro/snapshot') return mockResponse(await loadJson('data/macro_snapshot.json'));
-      if (path === '/api/macro/history')  return mockResponse(await loadJson('data/macro_history.json'));
-
-      // Signals timeseries
-      const sigMatch = path.match(/^\/api\/signals\/(\w+)$/);
-      if (sigMatch) return mockResponse(await loadJson(`data/signals_${sigMatch[1].toUpperCase()}.json`));
-
-      // Regime timeseries
-      const regMatch = path.match(/^\/api\/regime\/(\w+)$/);
-      if (regMatch) return mockResponse(await loadJson(`data/regime_${regMatch[1].toUpperCase()}.json`));
-
-      // Heatmap (returns z-matrix format)
-      if (path === '/api/heatmap') {
-        const ticker  = (params.get('ticker') || 'SPY').toUpperCase();
-        const horizon = params.get('horizon') || '3';
-        const zmap    = await loadJson(`data/heatmap_z_${ticker}.json`);
-        const hData   = zmap[horizon] || zmap['3'] || { x_labels:[], y_labels:[], z:[] };
-        return mockResponse(hData);
-      }
-
-      // Simple exposure validation (dashboard tab)
-      const valMatch = path.match(/^\/api\/validation\/(\w+)$/);
-      if (valMatch) return mockResponse(await loadJson(`data/validation_simple_${valMatch[1].toUpperCase()}.json`));
-
-      // Strategy snapshot
-      if (path === '/api/strategy-snapshot') return mockResponse(await loadJson('data/strategy_snapshot.json'));
-
-      // Strategy signals history
-      const stratSigMatch = path.match(/^\/api\/strategy-signals\/(\w+)$/);
-      if (stratSigMatch) return mockResponse(await loadJson(`data/strategy_signals_${stratSigMatch[1].toUpperCase()}.json`));
-
-      // Correlations
-      const corrMatch = path.match(/^\/api\/correlations\/(\w+)$/);
-      if (corrMatch) return mockResponse(await loadJson(`data/correlations_${corrMatch[1].toUpperCase()}.json`));
-
-      // Research: signal validation
-      const resValMatch = path.match(/^\/api\/research\/validation\/(\w+)$/);
-      if (resValMatch) {
-        const ticker = resValMatch[1].toUpperCase();
-        const signal = params.get('signal') || 'target_exposure';
-        try {
-          return mockResponse(await loadJson(`data/validation_${ticker}_${signal}.json`));
-        } catch(_) {
-          // Fallback to target_exposure
-          return mockResponse(await loadJson(`data/validation_${ticker}_target_exposure.json`));
-        }
-      }
-
-      // Research: regime-conditioned validation
-      const resRegMatch = path.match(/^\/api\/research\/validation-regimes\/(\w+)$/);
-      if (resRegMatch) {
-        const ticker    = resRegMatch[1].toUpperCase();
-        const signal    = params.get('signal') || 'target_exposure';
-        const regimeCol = params.get('regime_col') || 'macro_regime';
-        try {
-          return mockResponse(await loadJson(`data/val_regimes_${ticker}_${signal}_${regimeCol}.json`));
-        } catch(_) {
-          try {
-            return mockResponse(await loadJson(`data/val_regimes_${ticker}_target_exposure_macro_regime.json`));
-          } catch(__) {
-            return mockResponse({ signal, regime_col:regimeCol, horizon_months:3, bins:5, rows:[], summary:[] });
-          }
-        }
-      }
-
-      // Research: cross-bin prediction
-      const crossMatch = path.match(/^\/api\/research\/cross-prediction\/(\w+)$/);
-      if (crossMatch) {
-        const ticker  = crossMatch[1].toUpperCase();
-        const sig_x   = params.get('sig_x') || 'trend_score';
-        const sig_y   = params.get('sig_y') || 'momentum_score';
-        const bins    = params.get('bins')    || '4';
-        const horizon = params.get('horizon') || '3';
-        const sx6 = sig_x.slice(0,6);
-        const sy6 = sig_y.slice(0,6);
-        const fname = `data/cross_${ticker}_${sx6}_${sy6}_b${bins}_h${horizon}.json`;
-        try {
-          return mockResponse(await loadJson(fname));
-        } catch(_) {
-          // Try reverse pair
-          const fname2 = `data/cross_${ticker}_${sy6}_${sx6}_b${bins}_h${horizon}.json`;
-          try {
-            return mockResponse(await loadJson(fname2));
-          } catch(__) {
-            // Return empty - UI handles it gracefully
-            return mockResponse({ sig_x, sig_y, bins:parseInt(bins), horizon:parseInt(horizon), cells:[], summary:{} });
-          }
-        }
-      }
-
-      console.warn('[static mock] Unhandled API path:', path);
-      return errResponse('No static data for: ' + path);
-
-    } catch(e) {
-      console.error('[static mock] Error loading', url, e);
-      return errResponse(e.message);
+    if (path === '/api/heatmap') {
+      const t = (params.get('ticker')||'SPY').toUpperCase();
+      const h = params.get('horizon')||'3';
+      const zmap = D(`heatmap_z_${t}`);
+      if (!zmap) return Promise.resolve(miss(`heatmap_z_${t}`));
+      const hData = zmap[h] || zmap['3'] || { x_labels:[], y_labels:[], z:[] };
+      return Promise.resolve(ok(hData));
     }
+
+    const valMatch = path.match(/^\/api\/validation\/(\w+)$/);
+    if (valMatch) { const k=`validation_simple_${valMatch[1].toUpperCase()}`; return Promise.resolve(D(k)?ok(D(k)):miss(k)); }
+
+    const stratSigMatch = path.match(/^\/api\/strategy-signals\/(\w+)$/);
+    if (stratSigMatch) { const k=`strategy_signals_${stratSigMatch[1].toUpperCase()}`; return Promise.resolve(D(k)?ok(D(k)):miss(k)); }
+
+    const corrMatch = path.match(/^\/api\/correlations\/(\w+)$/);
+    if (corrMatch) { const k=`correlations_${corrMatch[1].toUpperCase()}`; return Promise.resolve(D(k)?ok(D(k)):miss(k)); }
+
+    const resValMatch = path.match(/^\/api\/research\/validation\/(\w+)$/);
+    if (resValMatch) {
+      const t = resValMatch[1].toUpperCase();
+      const sig = params.get('signal')||'target_exposure';
+      const k = `validation_${t}_${sig}`;
+      const k2 = `validation_${t}_target_exposure`;
+      return Promise.resolve(D(k)?ok(D(k)):D(k2)?ok(D(k2)):miss(k));
+    }
+
+    const resRegMatch = path.match(/^\/api\/research\/validation-regimes\/(\w+)$/);
+    if (resRegMatch) {
+      const t = resRegMatch[1].toUpperCase();
+      const sig = params.get('signal')||'target_exposure';
+      const rc  = params.get('regime_col')||'macro_regime';
+      const k   = `val_regimes_${t}_${sig}_${rc}`;
+      const k2  = `val_regimes_${t}_target_exposure_macro_regime`;
+      const fallback = { signal:sig, regime_col:rc, horizon_months:3, bins:5, rows:[], summary:[] };
+      return Promise.resolve(ok(D(k)||D(k2)||fallback));
+    }
+
+    const crossMatch = path.match(/^\/api\/research\/cross-prediction\/(\w+)$/);
+    if (crossMatch) {
+      const t  = crossMatch[1].toUpperCase();
+      const sx = params.get('sig_x')||'trend_score';
+      const sy = params.get('sig_y')||'momentum_score';
+      const b  = params.get('bins')||'4';
+      const h  = params.get('horizon')||'3';
+      const sx6 = sx.slice(0,6); const sy6 = sy.slice(0,6);
+      const k  = `cross_${t}_${sx6}_${sy6}_b${b}_h${h}`;
+      const k2 = `cross_${t}_${sy6}_${sx6}_b${b}_h${h}`;
+      const empty = { sig_x:sx, sig_y:sy, bins:parseInt(b), horizon:parseInt(h), cells:[], summary:{} };
+      return Promise.resolve(ok(D(k)||D(k2)||empty));
+    }
+
+    console.warn('[static mock] Unhandled path:', path);
+    return Promise.resolve(miss(path));
   };
 })();
 
