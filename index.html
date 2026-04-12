@@ -230,6 +230,7 @@
   <button class="tab-btn" onclick="switchTab('research')">🏛 Research</button>
   <button class="tab-btn" onclick="switchTab('strategy-matrix')">⚡ Strategy Signals</button>
   <button class="tab-btn" onclick="switchTab('correlations')">🔗 Correlations</button>
+  <button class="tab-btn" onclick="switchTab('quant-regimes')">🧠 Quant Regimes</button>
 
 </nav>
 
@@ -584,6 +585,64 @@
 </div><!-- end #page-correlations -->
 
 
+<!-- ═══════════════ QUANT REGIMES ═══════════════ -->
+<div id="page-quant-regimes" style="display:none;flex-direction:column">
+  <main>
+    <div class="card" style="margin-bottom:1rem">
+      <div class="card-title">Composite Regime Strip <span>Latest institutional regime classification per ticker</span></div>
+      <div id="qr-strips" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem"></div>
+    </div>
+    <div class="controls" style="margin-bottom:1rem">
+      <label>Ticker detail:</label>
+      <select id="qr-ticker-select">
+        <option value="SPY">SPY</option>
+        <option value="QQQ">QQQ</option>
+        <option value="GLD">GLD</option>
+        <option value="TLT">TLT</option>
+      </select>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
+      <div class="card">
+        <div class="card-title">Regime Probability History <span>Stacked probability of each regime over time</span></div>
+        <div id="qr-prob-chart" style="height:250px"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Statistical Signal Radar <span>Current normalised signal readings</span></div>
+        <div id="qr-radar-chart" style="height:250px"></div>
+      </div>
+    </div>
+    <!-- Raw scores + contribution breakdown -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
+      <div class="card">
+        <div class="card-title">Raw Regime Scores <span>Pre-softmax — the highest score wins the classification</span></div>
+        <div id="qr-scores-chart" style="height:240px"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Signal Contribution Breakdown <span>What drives the winning regime — green = support, red = opposing</span></div>
+        <div id="qr-contrib-chart" style="height:240px"></div>
+      </div>
+    </div>
+    <!-- Score history -->
+    <div class="card" style="margin-bottom:1rem">
+      <div class="card-title">Regime Score History <span>Raw scores over time — divergence signals regime transitions</span></div>
+      <div id="qr-score-history-chart" style="height:220px"></div>
+    </div>
+    <div class="card" style="margin-bottom:1rem">
+      <div class="card-title">Cross-Sectional Market Structure <span>Avg correlation · PCA dominance · Dispersion</span></div>
+      <div id="qr-xs-chart" style="height:200px"></div>
+    </div>
+    <div class="card" style="margin-bottom:1rem">
+      <div class="card-title">Action Layer <span>Institutional allocation guidance for current regime</span></div>
+      <div id="qr-action-body" style="color:var(--muted);font-size:0.85rem">Loading…</div>
+    </div>
+    <div class="card">
+      <div class="card-title" id="qr-history-title">Quant Regime History w/ Probability Bands</div>
+      <div id="qr-history-chart" style="height:220px"></div>
+    </div>
+  </main>
+</div><!-- end #page-quant-regimes -->
+
+
 
 </div>
 
@@ -625,7 +684,13 @@ const API = '';
   }
 
   window.fetch = function(url, opts) {
-    if (typeof url !== 'string' || !url.includes('/api/')) return _realFetch(url, opts);
+    if (typeof url !== 'string') return _realFetch(url, opts);
+    if (!url.includes('/api/')) {
+      // Serve data/*.json from STATIC_DATA (enables file:// and GitHub Pages without network reads)
+      const m = url.match(/data\/([^?#/\\]+)\.json/);
+      if (m && D(m[1])) return Promise.resolve(ok(D(m[1])));
+      return _realFetch(url, opts);
+    }
     const { path, params } = parseParams(url);
 
     if (path === '/api/health') return Promise.resolve(ok({ status: 'ok' }));
@@ -1824,9 +1889,287 @@ async function _reloadAllChart() {
 
 
 /* ═══════════════════════════════
+   QUANT REGIMES (Layer 4-5) — static version uses data/ paths
+═══════════════════════════════ */
+
+const QUANT_REGIME_COLORS = {
+  "Risk-On / Trending":      "#26a69a",
+  "Choppy / Mean-Reverting": "#ffd54f",
+  "Transition / Unstable":   "#ff8a65",
+  "Risk-Off / Defensive":    "#ef5350",
+  "Crisis / Tail-Risk":      "#b71c1c",
+};
+const QUANT_REGIME_ICONS = {
+  "Risk-On / Trending":      "🟢",
+  "Choppy / Mean-Reverting": "🟡",
+  "Transition / Unstable":   "🟠",
+  "Risk-Off / Defensive":    "🔴",
+  "Crisis / Tail-Risk":      "⚫",
+};
+
+let _qrLoaded = false;
+const _qrCache = {};
+
+async function loadQuantRegimes() {
+  if (_qrLoaded) return;
+  _qrLoaded = true;
+
+  const tickers = ['SPY', 'QQQ', 'GLD', 'TLT'];
+  const stripsEl = document.getElementById('qr-strips');
+  stripsEl.innerHTML = '';
+
+  for (const t of tickers) {
+    try {
+      const resp = await fetch(`data/quant_regime_${t}.json`);
+      if (!resp.ok) continue;
+      const raw = await resp.json();
+      _qrCache[t] = raw;
+      const dates = Object.keys(raw).sort();
+      const latest = raw[dates[dates.length - 1]];
+      if (!latest) continue;
+
+      const regime = latest.quant_regime || '—';
+      const conf   = latest.quant_regime_conf != null ? (latest.quant_regime_conf * 100).toFixed(0) + '%' : '—';
+      const drivers = latest.quant_regime_drivers ? latest.quant_regime_drivers.split(',').join(' · ') : '—';
+      const col    = QUANT_REGIME_COLORS[regime] || '#888';
+      const icon   = QUANT_REGIME_ICONS[regime]  || '◼';
+
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.style = `border-left: 4px solid ${col}; cursor:pointer`;
+      card.innerHTML = `
+        <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.5rem">
+          <span style="font-size:1.3rem">${icon}</span>
+          <span style="font-weight:700;color:var(--accent);font-size:1rem">${t}</span>
+          <span class="regime-badge" style="background:${col}22;color:${col};border:1px solid ${col}44;margin-left:auto">${regime}</span>
+        </div>
+        <div style="display:flex;gap:1rem;font-size:0.8rem;color:var(--muted)">
+          <span>Confidence: <strong style="color:${col}">${conf}</strong></span>
+          <span>Drivers: <span style="color:var(--text)">${drivers}</span></span>
+        </div>
+        <div style="margin-top:0.5rem">
+          ${['risk_on','choppy','transition','risk_off','crisis'].map(k => {
+            const pKey = `regime_prob_${k}`;
+            const pct  = latest[pKey] != null ? (latest[pKey]*100).toFixed(0) : 0;
+            const lab  = k.replace('_',' ');
+            return `<div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:2px">
+              <span style="width:80px;font-size:0.68rem;color:var(--muted);text-transform:capitalize">${lab}</span>
+              <div style="flex:1;height:5px;background:var(--border);border-radius:3px;overflow:hidden">
+                <div style="height:100%;width:${pct}%;background:${col};opacity:0.7;border-radius:3px"></div>
+              </div>
+              <span style="font-size:0.7rem;color:var(--muted);width:28px;text-align:right">${pct}%</span>
+            </div>`;
+          }).join('')}
+        </div>`;
+      card.addEventListener('click', () => {
+        document.getElementById('qr-ticker-select').value = t;
+        loadQuantRegimeTicker(t);
+      });
+      stripsEl.appendChild(card);
+    } catch (_) {}
+  }
+
+  await loadQuantRegimeTicker('SPY').catch(() => {});
+
+  document.getElementById('qr-ticker-select').addEventListener('change', (e) => {
+    loadQuantRegimeTicker(e.target.value).catch(() => {});
+  });
+}
+
+async function loadQuantRegimeTicker(ticker) {
+  let raw = _qrCache[ticker];
+  if (!raw) {
+    const resp = await fetch(`data/quant_regime_${ticker}.json`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    raw = await resp.json();
+    _qrCache[ticker] = raw;
+  }
+
+  const dates  = Object.keys(raw).sort();
+  const latest = raw[dates[dates.length - 1]];
+  if (!latest) return;
+
+  const PLOTLY_CFG = { responsive: true, displayModeBar: false };
+
+  // ── Regime probability history ─────────────────────────────────────────
+  const probKeys = [
+    { key: 'regime_prob_risk_on',    label: 'Risk-On',    color: '#26a69a' },
+    { key: 'regime_prob_choppy',     label: 'Choppy',     color: '#ffd54f' },
+    { key: 'regime_prob_transition', label: 'Transition', color: '#ff8a65' },
+    { key: 'regime_prob_risk_off',   label: 'Risk-Off',   color: '#ef5350' },
+    { key: 'regime_prob_crisis',     label: 'Crisis',     color: '#b71c1c' },
+  ];
+  Plotly.newPlot('qr-prob-chart', probKeys.map(pk => ({
+    x: dates, y: dates.map(d => raw[d]?.[pk.key] ?? null),
+    name: pk.label, type:'scatter', mode:'none',
+    stackgroup:'probs', fillcolor: pk.color+'AA',
+    hovertemplate: `%{x}<br>${pk.label}: %{y:.1%}<extra></extra>`,
+  })), { paper_bgcolor:'transparent', plot_bgcolor:'transparent', margin:{l:52,r:12,t:12,b:32},
+    font:{color:'#e0e0e0',size:11}, xaxis:{gridcolor:'#2a2d3a'},
+    yaxis:{gridcolor:'#2a2d3a',tickformat:'.0%',range:[0,1]},
+    legend:{x:0,y:1,bgcolor:'transparent',font:{size:9}}, hovermode:'x unified' }, PLOTLY_CFG);
+
+  // ── Raw regime scores (horizontal bar) ────────────────────────────────
+  const SCORE_KEYS = [
+    { key:'score_risk_on',    label:'Risk-On / Trending',      color:'#26a69a' },
+    { key:'score_choppy',     label:'Choppy / Mean-Reverting', color:'#ffd54f' },
+    { key:'score_transition', label:'Transition / Unstable',   color:'#ff8a65' },
+    { key:'score_risk_off',   label:'Risk-Off / Defensive',    color:'#ef5350' },
+    { key:'score_crisis',     label:'Crisis / Tail-Risk',      color:'#b71c1c' },
+  ];
+  const currentScores  = SCORE_KEYS.map(s => latest[s.key] ?? 0);
+  const maxScoreIdx    = currentScores.indexOf(Math.max(...currentScores));
+  const scoreBarColors = SCORE_KEYS.map((s,i) => i === maxScoreIdx ? s.color : s.color+'66');
+  Plotly.newPlot('qr-scores-chart', [{
+    type:'bar', orientation:'h',
+    y:SCORE_KEYS.map(s=>s.label), x:currentScores,
+    marker:{color:scoreBarColors},
+    text:currentScores.map(v=>v.toFixed(2)), textposition:'outside',
+    hovertemplate:'%{y}<br>Score: %{x:.3f}<extra></extra>',
+  }], {
+    paper_bgcolor:'transparent', plot_bgcolor:'transparent',
+    margin:{l:175,r:50,t:12,b:28}, font:{color:'#e0e0e0',size:10},
+    xaxis:{gridcolor:'#2a2d3a',zeroline:true,zerolinecolor:'#555',title:'Raw Score'},
+    yaxis:{gridcolor:'#2a2d3a',autorange:'reversed'},
+    shapes:[{type:'line',x0:0,x1:0,y0:-0.5,y1:4.5,line:{color:'#555',width:1,dash:'dot'}}],
+    showlegend:false,
+  }, PLOTLY_CFG);
+
+  // ── Signal contribution breakdown (winning regime) ────────────────────
+  let contribData = {};
+  try {
+    const raw_contrib = latest.winner_contrib;
+    if (raw_contrib) contribData = typeof raw_contrib === 'string' ? JSON.parse(raw_contrib) : raw_contrib;
+  } catch(_) {}
+  if (Object.keys(contribData).length === 0) {
+    document.getElementById('qr-contrib-chart').innerHTML = '<div style="color:var(--muted);padding:1rem;font-size:0.8rem">No contribution data</div>';
+  } else {
+    const ce = Object.entries(contribData).sort((a,b)=>b[1]-a[1]);
+    const winColor = QUANT_REGIME_COLORS[latest.quant_regime] || '#4f8ef7';
+    Plotly.newPlot('qr-contrib-chart', [{
+      type:'bar', orientation:'h',
+      y:ce.map(([k])=>k.replace(/_/g,' ')), x:ce.map(([,v])=>v),
+      marker:{color:ce.map(([,v])=>v>=0?winColor:'#ef5350')},
+      text:ce.map(([,v])=>(v>=0?'+':'')+v.toFixed(2)), textposition:'outside',
+      hovertemplate:'%{y}<br>Contribution: %{x:.3f}<extra></extra>',
+    }], {
+      paper_bgcolor:'transparent', plot_bgcolor:'transparent',
+      margin:{l:140,r:55,t:12,b:28}, font:{color:'#e0e0e0',size:10},
+      xaxis:{gridcolor:'#2a2d3a',zeroline:true,zerolinecolor:'#555',title:'Contribution'},
+      yaxis:{gridcolor:'#2a2d3a',autorange:'reversed'},
+      shapes:[{type:'line',x0:0,x1:0,y0:-0.5,y1:ce.length-0.5,line:{color:'#555',width:1,dash:'dot'}}],
+      showlegend:false,
+    }, PLOTLY_CFG);
+  }
+
+  // ── Score history (all 5 regimes as lines) ────────────────────────────
+  Plotly.newPlot('qr-score-history-chart', SCORE_KEYS.map(sk=>({
+    x:dates, y:dates.map(d=>raw[d]?.[sk.key]??null),
+    name:sk.label.split(' / ')[0], type:'scatter', mode:'lines',
+    line:{color:sk.color,width:1.8},
+    hovertemplate:`%{x}<br>${sk.label}: %{y:.2f}<extra></extra>`,
+  })), {
+    paper_bgcolor:'transparent', plot_bgcolor:'transparent',
+    margin:{l:52,r:12,t:12,b:32}, font:{color:'#e0e0e0',size:10},
+    xaxis:{gridcolor:'#2a2d3a'},
+    yaxis:{gridcolor:'#2a2d3a',zeroline:true,zerolinecolor:'#444',title:'Raw Score'},
+    legend:{x:0,y:1,bgcolor:'transparent',font:{size:9},orientation:'h'},
+    hovermode:'x unified',
+  }, PLOTLY_CFG);
+
+  // ── Radar ──────────────────────────────────────────────────────────────
+  const radarDefs = [
+    { key:'trend_score', label:'Trend', s:[-1,1] },
+    { key:'hurst_score', label:'Hurst', s:[0.3,0.8] },
+    { key:'entropy_score', label:'Entropy', s:[0,1] },
+    { key:'realized_vol', label:'RealVol', s:[0,0.4] },
+    { key:'wasserstein_score', label:'Wasserstein', s:[0,3] },
+    { key:'avg_correlation', label:'AvgCorr', s:[0,1] },
+  ];
+  const rLabels = radarDefs.map(d=>d.label);
+  const rVals   = radarDefs.map(d => {
+    const v = latest[d.key]; if (v == null) return 0.5;
+    return Math.max(0, Math.min(1, (v - d.s[0]) / (d.s[1] - d.s[0])));
+  });
+  Plotly.newPlot('qr-radar-chart', [{
+    type:'scatterpolar', mode:'lines+markers',
+    r:[...rVals, rVals[0]], theta:[...rLabels, rLabels[0]],
+    fill:'toself', fillcolor:'rgba(79,142,247,0.15)',
+    line:{color:'#4f8ef7',width:2}, name:ticker,
+  }], { paper_bgcolor:'transparent', plot_bgcolor:'transparent',
+    margin:{l:40,r:40,t:30,b:20},
+    polar:{ bgcolor:'transparent',
+      angularaxis:{gridcolor:'#2a2d3a',linecolor:'#2a2d3a',tickfont:{color:'#e0e0e0',size:10}},
+      radialaxis:{gridcolor:'#2a2d3a',range:[0,1],tickfont:{color:'#888',size:8}} },
+    showlegend:false, font:{color:'#e0e0e0'} }, PLOTLY_CFG);
+
+  // ── Cross-sectional ────────────────────────────────────────────────────
+  const xsCols   = ['avg_correlation','pca_dominance','cross_dispersion'];
+  const xsLabels = ['Avg Corr','PCA Dom','Dispersion'];
+  const xsColors = ['#4f8ef7','#26a69a','#ffd54f'];
+  Plotly.newPlot('qr-xs-chart', xsCols.map((c,i) => ({
+    x:dates, y:dates.map(d=>raw[d]?.[c]??null),
+    name:xsLabels[i], type:'scatter', mode:'lines',
+    line:{color:xsColors[i],width:1.8},
+  })), { paper_bgcolor:'transparent', plot_bgcolor:'transparent',
+    margin:{l:52,r:12,t:12,b:32}, font:{color:'#e0e0e0',size:11},
+    xaxis:{gridcolor:'#2a2d3a'}, yaxis:{gridcolor:'#2a2d3a',zeroline:true,zerolinecolor:'#444'},
+    legend:{x:0,y:1,bgcolor:'transparent',font:{size:9}}, hovermode:'x unified' }, PLOTLY_CFG);
+
+  // ── Action layer ──────────────────────────────────────────────────────
+  const regime = latest.quant_regime || '—';
+  const col    = QUANT_REGIME_COLORS[regime] || '#888';
+  const conf   = latest.quant_regime_conf != null ? (latest.quant_regime_conf * 100).toFixed(0) + '%' : '—';
+  const actionMap = {
+    "Risk-On / Trending":      { eq:"Full long (100%)", bd:"Underweight", cm:"Overweight momentum", cs:"Minimal",     lev:"1.0–1.2×", strat:"Trend-follow · Breakout · Momentum" },
+    "Choppy / Mean-Reverting": { eq:"Reduced (50–70%)", bd:"Neutral",     cm:"Neutral",             cs:"Moderate",    lev:"≤1.0×",    strat:"Mean-reversion · S/R · Pullbacks"  },
+    "Transition / Unstable":   { eq:"Cautious (40–60%)",bd:"Slight OW",   cm:"Neutral",             cs:"High buffer", lev:"≤0.8×",    strat:"Reduce all — wait for clarity"     },
+    "Risk-Off / Defensive":    { eq:"Minimal (10–30%)", bd:"Overweight",  cm:"Gold / Safe havens",  cs:"Large",       lev:"≤0.5×",    strat:"Defensive rotation · Bonds · Gold" },
+    "Crisis / Tail-Risk":      { eq:"Flat / Short",     bd:"Long duration",cm:"Gold only",          cs:"Maximum",    lev:"0× (flat)",strat:"Hedge everything · Preserve capital"},
+  };
+  const a = actionMap[regime] || {};
+  document.getElementById('qr-action-body').innerHTML = `
+    <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem;flex-wrap:wrap">
+      <span style="background:${col}22;color:${col};border:1px solid ${col}44;padding:2px 10px;border-radius:20px;font-size:0.83rem">${regime}</span>
+      <span style="background:var(--card-bg);border:1px solid var(--border);padding:2px 10px;border-radius:14px;font-size:0.78rem">Confidence ${conf}</span>
+      <span style="color:var(--muted);font-size:0.78rem">Ticker: ${ticker}</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0.75rem">
+      ${[['Equity',a.eq||'—','#4f8ef7'],['Bonds',a.bd||'—','#90a4ae'],['Commodities',a.cm||'—','#ffd54f'],['Cash Buffer',a.cs||'—','#80cbc4'],['Leverage',a.lev||'—','#ff8a65'],['Strategies',a.strat||'—',col]]
+        .map(([lbl,val,c])=>`<div style="background:var(--card-bg);border:1px solid var(--border);border-left:3px solid ${c};padding:0.6rem 0.8rem;border-radius:6px">
+          <div style="font-size:0.7rem;color:var(--muted);margin-bottom:3px">${lbl}</div>
+          <div style="font-size:0.82rem;color:var(--text)">${val}</div></div>`).join('')}
+    </div>`;
+
+  // ── History chart ───────────────────────────────────────────────────
+  document.getElementById('qr-history-title').textContent = `Quant Regime History — ${ticker}`;
+  const regimes = dates.map(d=>raw[d]?.quant_regime||null);
+  const trendScores = dates.map(d=>raw[d]?.trend_score??null);
+  const shapes = [];
+  let si = 0;
+  for (let i = 1; i <= dates.length; i++) {
+    if (i === dates.length || regimes[i] !== regimes[si]) {
+      const r = regimes[si];
+      if (r) shapes.push({type:'rect',xref:'x',yref:'paper',x0:dates[si],x1:dates[Math.min(i,dates.length-1)],y0:0,y1:1,fillcolor:(QUANT_REGIME_COLORS[r]||'#888')+'28',line:{width:0},layer:'below'});
+      si = i;
+    }
+  }
+  Plotly.newPlot('qr-history-chart', [
+    {x:dates, y:trendScores, name:'Trend Score', type:'scatter', mode:'lines', line:{color:'#4f8ef7',width:2},
+     customdata:regimes, hovertemplate:'%{x}<br>Trend: %{y:.3f}<br>Regime: %{customdata}<extra></extra>'},
+    {x:dates, y:dates.map(()=>0), showlegend:false, line:{color:'#555',width:1,dash:'dot'}, type:'scatter', mode:'lines'},
+  ], { paper_bgcolor:'transparent', plot_bgcolor:'transparent',
+    margin:{l:52,r:12,t:18,b:38}, font:{color:'#e0e0e0',size:10},
+    shapes, xaxis:{gridcolor:'#2a2d3a'},
+    yaxis:{gridcolor:'#2a2d3a',zeroline:true,zerolinecolor:'#555',range:[-1.15,1.15]},
+    showlegend:false }, PLOTLY_CFG);
+}
+
+
+/* ═══════════════════════════════
    TAB SWITCHING & INIT
 ═══════════════════════════════ */
-const TAB_IDS = ['dashboard','research', 'strategy-matrix', 'correlations'];
+const TAB_IDS = ['dashboard','research', 'strategy-matrix', 'correlations', 'quant-regimes'];
 
 function switchTab(tab) {
   document.querySelectorAll('.tab-btn').forEach((btn, i) => {
@@ -1836,9 +2179,11 @@ function switchTab(tab) {
   document.getElementById('page-research').style.display        = tab==='research'        ? 'flex'  : 'none';
   document.getElementById('page-strategy-matrix').style.display = tab==='strategy-matrix' ? 'flex'  : 'none';
   document.getElementById('page-correlations').style.display    = tab==='correlations'    ? 'flex'  : 'none';
+  document.getElementById('page-quant-regimes').style.display = tab==='quant-regimes' ? 'flex' : 'none';
   if (tab === 'research')        { loadResearchWorkspace();  }
   if (tab === 'strategy-matrix') { loadStrategyMatrix();     }
   if (tab === 'correlations')    { loadCorrelations();       }
+  if (tab === 'quant-regimes')   { loadQuantRegimes();       }
 }
 
 (async function init() { await loadAll(); })();
